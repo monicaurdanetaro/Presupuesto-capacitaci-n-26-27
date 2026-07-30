@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Presupuesto de Capacitación · Farmatodo</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&display=swap');
 
@@ -161,7 +163,16 @@ tr.current-row td{background:#FFF6E4;}
 <body>
 
 <div class="overlay" id="loadingOverlay">Cargando presupuesto…</div>
-
+<div id="setupBanner" style="display:none; max-width:900px; margin:24px auto; background:#FCEFDC; border:1px solid #C9862E; border-radius:8px; padding:18px 22px; font-family:Arial,sans-serif; color:#6b4a17; font-size:13.5px; line-height:1.6;">
+  <strong>Falta un paso para que los datos se guarden y se compartan:</strong> conecta esta página a una base de datos gratuita de Firebase.
+  <ol style="margin:10px 0 0 18px; padding:0;">
+    <li>Ve a <a href="https://console.firebase.google.com" target="_blank" style="color:#001E62; font-weight:700;">console.firebase.google.com</a> y crea un proyecto gratis (sin tarjeta).</li>
+    <li>En el menú "Compilación", entra a <strong>Realtime Database</strong> → Crear base de datos → modo de prueba.</li>
+    <li>En Configuración del proyecto → General → "Tus apps" → agrega una app Web (ícono &lt;/&gt;) y copia el objeto <code>firebaseConfig</code>.</li>
+    <li>Pega esos valores en el archivo <code>index.html</code>, al inicio del <code>&lt;script&gt;</code>, donde dice <code>var firebaseConfig = {...}</code>, y vuelve a subirlo a GitHub.</li>
+  </ol>
+  <div style="margin-top:10px;">Mientras tanto, la app funciona en este navegador pero no se guarda ni se comparte con el equipo.</div>
+</div>
 <div id="app" style="display:none;">
 
   <div class="masthead">
@@ -185,7 +196,7 @@ tr.current-row td{background:#FFF6E4;}
     <button class="tab" data-tab="oficial">Panel oficial</button>
   </div>
 
-  <div class="month-row" id="monthRow">
+  <div class="month-row" id="monthRow" style="display:none;">
     <label>Mes en edición</label>
     <select class="month-select" id="monthSelect"></select>
     <span class="hint" id="monthRowHint"></span>
@@ -200,8 +211,13 @@ tr.current-row td{background:#FFF6E4;}
     </div>
     <div class="panel">
       <h2>Presupuesto por mes — año fiscal completo</h2>
-      <div class="hint-spacer">Los 12 meses de Agosto 2026 a Julio 2027, siempre por año fiscal completo. Usa el lápiz ✏️ para corregir el presupuesto de un mes.</div>
+      <div class="hint-spacer">Los 12 meses de Agosto 2026 a Julio 2027. Estos montos vienen de tu archivo de presupuesto y no se editan aquí.</div>
       <div id="dashboardMonthlyTable"></div>
+    </div>
+    <div class="panel">
+      <h2>Presupuesto con ahorro vs. PPTO planificado</h2>
+      <div class="hint-spacer">El PPTO planificado es la suma de esa columna en "Por actividad". Diferencia negativa: lo planificado excede el presupuesto con ahorro.</div>
+      <div id="ahorroVsPlanificado"></div>
     </div>
     <div class="panel">
       <h2>Objetivo de ahorro</h2>
@@ -213,16 +229,12 @@ tr.current-row td{background:#FFF6E4;}
   <div class="section" id="section-actividades">
     <div class="panel">
       <h2>Gasto por actividad — año fiscal completo</h2>
-      <div class="hint-spacer">PPTO planificado: el número adoptado como plan — usa el lápiz ✏️ para editarlo cuando quieras. Filas en rojo: disponible negativo.</div>
-      <div class="toolbar">
+      <div class="hint-spacer">PPTO planificado: el número adoptado como plan. Activa "Editar" arriba de la tabla para modificar cualquier dato o agregar actividades. Filas en rojo: disponible negativo.</div>
+      <div class="toolbar" style="justify-content:space-between;">
         <select id="filterCategoria"><option value="">Todos los proyectos</option></select>
+        <button class="btn ghost" id="btnToggleEditActividades">✏️ Editar</button>
       </div>
       <div id="actividadesTable"></div>
-    </div>
-    <div class="panel">
-      <h2>Gestionar actividades</h2>
-      <div class="hint-spacer">Renombra, cambia de categoría, desactiva o elimina actividades. Agrega actividades nuevas cuando el equipo las incorpore.</div>
-      <div id="activitiesAdminTable"></div>
       <div id="addActivityForm" style="margin-top:14px;"></div>
     </div>
   </div>
@@ -238,7 +250,7 @@ tr.current-row td{background:#FFF6E4;}
           <div class="field"><label>Proveedor <span class="req">*</span></label><input type="text" id="f_proveedor" required placeholder="Nombre del proveedor"></div>
           <div class="field">
             <label>Actividad <span class="req">*</span></label>
-            <div class="search-wrap"><span class="ico">🔍</span><input type="text" id="f_actividad_search" list="activityDatalist" required placeholder="Buscar actividad por nombre…" autocomplete="off"></div>
+            <input type="text" id="f_actividad_search" list="activityDatalist" required placeholder="Buscar actividad por nombre…" autocomplete="off">
           </div>
           <div class="field"><label>Concepto <span class="req">*</span></label><input type="text" id="f_concepto" required placeholder="Ej. Certificación equipo ventas"></div>
           <div class="field"><label>Monto (USD) <span class="req">*</span></label><input type="number" id="f_monto" required step="0.01" min="0" placeholder="0.00"></div>
@@ -268,7 +280,7 @@ tr.current-row td{background:#FFF6E4;}
       <div class="hint-spacer">Vista de todo el equipo. Cualquiera puede corregir monto, mes, o marcar si ya se vio en el panel oficial.</div>
       <div class="toolbar">
         <input type="text" id="filterText" placeholder="Buscar proveedor, concepto o solicitud…">
-        <div class="search-wrap"><span class="ico">🔍</span><input type="text" id="filterActividadSearch" list="activityDatalist" placeholder="Filtrar por actividad…" autocomplete="off"></div>
+        <input type="text" id="filterActividadSearch" list="activityDatalist" placeholder="Filtrar por actividad…" autocomplete="off">
         <select id="filterMes"><option value="">Todos los meses</option></select>
         <select id="filterResponsable">
           <option value="">Todos los responsables</option>
@@ -298,7 +310,17 @@ tr.current-row td{background:#FFF6E4;}
 (function(){
   "use strict";
 
-  var STORAGE_KEYS = { settings:'ftdcap-settings-v4', expenses:'ftdcap-expenses-v4', official:'ftdcap-official-v4' };
+  // ======= CONFIGURA AQUÍ TU PROYECTO DE FIREBASE (Realtime Database) =======
+  // Reemplaza estos valores con los de tu proyecto (console.firebase.google.com
+  // → Configuración del proyecto → General → Tus apps → app Web → firebaseConfig).
+  var firebaseConfig = {
+    apiKey: "AIzaSyDmseVbOIjfep1O5j_J_u_-4P7-rPdTsIs",
+    databaseURL: "https://presupuesto-capacitacion-default-rtdb.firebaseio.com",
+    projectId: "presupuesto-capacitacion"
+  };
+  // ============================================================================
+
+  var STORAGE_KEYS = { settings:'ftdcap/settings', expenses:'ftdcap/expenses', official:'ftdcap/official' };
   var MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var FISCAL_MONTHS = genMonthRange('2026-08', '2027-07');
   var RESPONSABLES = ['YP','ADA','MU','CG','VP','OO','OG','AH'];
@@ -330,16 +352,25 @@ tr.current-row td{background:#FFF6E4;}
     settings: { activities: [], monthlyBudgets: {}, ahorroPct: 2 },
     expenses: [], official: [],
     activeTab: 'dashboard', currentMonth: FISCAL_MONTHS[0],
-    editingMonthBudget: null, editingActivityPlan: null
+    editActividades: false
   };
 
   // ---------------- STORAGE ----------------
+  var FIREBASE_READY = firebaseConfig.apiKey !== "YOUR_API_KEY" && !!firebaseConfig.databaseURL;
+  var db = null;
+  if (FIREBASE_READY && typeof firebase !== 'undefined'){
+    try{ firebase.initializeApp(firebaseConfig); db = firebase.database(); }
+    catch(e){ console.error('Firebase init failed', e); db = null; }
+  }
+
   async function storageGet(key){
-    try{ var r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; }
-    catch(e){ return null; }
+    if (!db) return null;
+    try{ var snap = await db.ref(key).once('value'); return snap.exists() ? snap.val() : null; }
+    catch(e){ console.error('storage get failed', key, e); return null; }
   }
   async function storageSet(key, value){
-    try{ await window.storage.set(key, JSON.stringify(value), true); return true; }
+    if (!db) return false;
+    try{ await db.ref(key).set(value); return true; }
     catch(e){ console.error('storage set failed', key, e); return false; }
   }
 
@@ -358,20 +389,42 @@ tr.current-row td{background:#FFF6E4;}
     };
   }
 
-  async function loadAll(){
-    var s = await storageGet(STORAGE_KEYS.settings);
-    var e = await storageGet(STORAGE_KEYS.expenses);
-    var o = await storageGet(STORAGE_KEYS.official);
-    if (!s){ s = seedDefaults(); await storageSet(STORAGE_KEYS.settings, s); }
+  function normalizeSettings(s){
     if (!s.monthlyBudgets) s.monthlyBudgets = {};
     if (!s.activities) s.activities = [];
     if (typeof s.ahorroPct !== 'number') s.ahorroPct = 2;
     s.activities.forEach(function(a){ if (typeof a.pptoPlanificado !== 'number') a.pptoPlanificado = 0; });
+    return s;
+  }
+
+  async function loadAll(){
+    var s = await storageGet(STORAGE_KEYS.settings);
+    var e = await storageGet(STORAGE_KEYS.expenses);
+    var o = await storageGet(STORAGE_KEYS.official);
+    if (!s){ s = seedDefaults(); if (db) await storageSet(STORAGE_KEYS.settings, s); }
+    normalizeSettings(s);
     state.settings = s;
     state.expenses = e || [];
     state.official = o || [];
   }
   async function refreshFromStorage(){ await loadAll(); renderAll(); }
+
+  function subscribeRealtime(){
+    if (!db) return;
+    db.ref(STORAGE_KEYS.settings).on('value', function(snap){
+      if (!snap.exists()) return;
+      state.settings = normalizeSettings(snap.val());
+      renderAll();
+    });
+    db.ref(STORAGE_KEYS.expenses).on('value', function(snap){
+      state.expenses = snap.exists() ? snap.val() : [];
+      renderAll();
+    });
+    db.ref(STORAGE_KEYS.official).on('value', function(snap){
+      state.official = snap.exists() ? snap.val() : [];
+      renderAll();
+    });
+  }
 
   // ---------------- COMPUTATION ----------------
   function activeActivities(){ return (state.settings.activities||[]).filter(function(a){return a.activo!==false;}); }
@@ -436,54 +489,38 @@ tr.current-row td{background:#FFF6E4;}
     document.getElementById('dashboardAnnualDual').innerHTML = html;
   }
 
+  function renderAhorroVsPlanificado(){
+    var presupuestoTotal = FISCAL_MONTHS.reduce(function(s,m){return s+(Number(state.settings.monthlyBudgets[m])||0);},0);
+    var presupuestoAhorro = presupuestoTotal * (1 - Number(state.settings.ahorroPct||0)/100);
+    var planificadoTotal = activeActivities().reduce(function(s,a){return s+(Number(a.pptoPlanificado)||0);},0);
+    var diferencia = presupuestoAhorro - planificadoTotal;
+    var diffCls = diferencia<0 ? 'diff-neg' : 'diff-pos';
+    document.getElementById('ahorroVsPlanificado').innerHTML =
+      '<table class="dual-table"><tr><th>Concepto</th><th>Monto</th></tr>'
+      + '<tr><td>Presupuesto con ahorro ('+state.settings.ahorroPct+'%)</td><td>'+fmtUSD(presupuestoAhorro)+'</td></tr>'
+      + '<tr><td>PPTO planificado (suma de actividades)</td><td>'+fmtUSD(planificadoTotal)+'</td></tr>'
+      + '<tr class="diff"><td>Diferencia</td><td class="'+diffCls+'">'+fmtUSD(diferencia)+'</td></tr></table>';
+  }
+
   function renderDashboardMonthlyTable(){
     var body = FISCAL_MONTHS.map(function(m){
       var g = computeGlobalMonth(m);
       var isCurrent = m===state.currentMonth;
-      var presupuestoCell;
-      if (state.editingMonthBudget === m){
-        presupuestoCell = '<input type="number" step="0.01" id="mbEditInput" value="'+g.presupuestoReal+'" style="width:110px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;">'
-          + ' <button class="btn small primary" data-action="mb-save" data-mes="'+m+'">Guardar</button>'
-          + ' <button class="btn small ghost" data-action="mb-cancel">Cancelar</button>';
-      } else {
-        presupuestoCell = fmtUSD(g.presupuestoReal)+' <button class="btn small ghost" data-action="mb-edit" data-mes="'+m+'" title="Editar presupuesto">✏️</button>';
-      }
-      return '<tr class="'+(isCurrent?'current-row':'')+(g.diferenciaReal<0?' alert-row':'')+'">'
+      var diffSimple = g.presupuestoReal - g.oficialVal;
+      return '<tr class="'+(isCurrent?'current-row':'')+(diffSimple<0?' alert-row':'')+'">'
         + '<td>'+escapeHtml(monthLabel(m))+'</td>'
-        + '<td class="num">'+presupuestoCell+'</td>'
+        + '<td class="num">'+fmtUSD(g.presupuestoReal)+'</td>'
         + '<td class="num">'+(g.oficial===null?'<span style="color:var(--ink-soft);">Sin cargar</span>':fmtUSD(g.oficial))+'</td>'
-        + '<td class="num">'+fmtUSD(g.gastoTotal)+'</td>'
-        + '<td class="num">'+fmtUSD(g.diferenciaReal)+'</td></tr>';
+        + '<td class="num">'+fmtUSD(diffSimple)+'</td></tr>';
     }).join('');
     var t = FISCAL_MONTHS.reduce(function(acc,m){
       var g = computeGlobalMonth(m);
-      acc.presupuesto+=g.presupuestoReal; acc.oficial+=g.oficialVal; acc.total+=g.gastoTotal; acc.diff+=g.diferenciaReal;
+      acc.presupuesto+=g.presupuestoReal; acc.oficial+=g.oficialVal; acc.diff+=(g.presupuestoReal-g.oficialVal);
       return acc;
-    }, {presupuesto:0,oficial:0,total:0,diff:0});
-    var totalRow = '<tr class="total-row"><td>Total año</td><td class="num">'+fmtUSD(t.presupuesto)+'</td><td class="num">'+fmtUSD(t.oficial)+'</td><td class="num">'+fmtUSD(t.total)+'</td><td class="num">'+fmtUSD(t.diff)+'</td></tr>';
+    }, {presupuesto:0,oficial:0,diff:0});
+    var totalRow = '<tr class="total-row"><td>Total año</td><td class="num">'+fmtUSD(t.presupuesto)+'</td><td class="num">'+fmtUSD(t.oficial)+'</td><td class="num">'+fmtUSD(t.diff)+'</td></tr>';
     document.getElementById('dashboardMonthlyTable').innerHTML =
-      '<table class="std"><tr><th>Mes</th><th class="num">Presupuesto</th><th class="num">Gasto real (panel)</th><th class="num">Gasto total</th><th class="num">Diferencia</th></tr>'+body+totalRow+'</table>';
-  }
-
-  function renderActivitiesAdminTable(){
-    var actList = (state.settings.activities||[]).slice().sort(function(a,b){return (a.categoria||'').localeCompare(b.categoria||'') || a.nombre.localeCompare(b.nombre);});
-    var body = actList.map(function(a){
-      return '<tr>'
-        + '<td><input type="text" data-action="act-cat" data-id="'+a.id+'" value="'+escapeHtml(a.categoria||'')+'" style="width:100%; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
-        + '<td><input type="text" data-action="act-nombre" data-id="'+a.id+'" value="'+escapeHtml(a.nombre)+'" style="width:100%; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
-        + '<td>'+(a.activo!==false?'<span class="pill ok">Activo</span>':'<span class="pill warn">Inactivo</span>')+'</td>'
-        + '<td><button class="btn small ghost" data-action="act-toggle" data-id="'+a.id+'">'+(a.activo!==false?'Desactivar':'Reactivar')+'</button> <button class="btn small danger" data-action="act-delete" data-id="'+a.id+'">Eliminar</button></td></tr>';
-    }).join('');
-    document.getElementById('activitiesAdminTable').innerHTML =
-      '<table class="std"><tr><th>Categoría</th><th>Actividad</th><th>Estado</th><th></th></tr>'+body+'</table>'
-      + '<div style="margin-top:14px;"><button class="btn primary" id="btnSaveActs">Guardar cambios</button> <span id="actMsg" style="margin-left:10px; font-size:12.5px; color:var(--fd-teal); font-weight:700;"></span></div>';
-
-    document.getElementById('addActivityForm').innerHTML =
-      '<div class="form-grid" style="grid-template-columns:1fr 1.4fr 1fr auto;">'
-      + '<div class="field"><label>Categoría</label><input type="text" id="newActCat" placeholder="Ej. Plan de formación"></div>'
-      + '<div class="field"><label>Nueva actividad</label><input type="text" id="newActName" placeholder="Nombre de la actividad"></div>'
-      + '<div class="field"><label>PPTO planificado (anual)</label><input type="number" id="newActPlanificado" step="0.01" placeholder="0.00"></div>'
-      + '<div class="field" style="display:flex; align-items:flex-end;"><button class="btn primary" id="btnAddAct" style="width:100%;">Agregar</button></div></div>';
+      '<table class="std"><tr><th>Mes</th><th class="num">Presupuesto</th><th class="num">Gasto real (panel)</th><th class="num">Diferencia</th></tr>'+body+totalRow+'</table>';
   }
 
   function renderConfigForm(){
@@ -503,38 +540,63 @@ tr.current-row td{background:#FFF6E4;}
   }
 
   function renderActividades(){
+    document.getElementById('btnToggleEditActividades').textContent = state.editActividades ? 'Cancelar edición' : '✏️ Editar';
     var catFilter = document.getElementById('filterCategoria').value;
-    var rows = computeActivityAnnualRows().filter(function(r){
-      if (!catFilter) return true;
-      return (r.actividad.categoria||'Sin categoría')===catFilter;
-    });
+    var editing = state.editActividades;
+    var allActs = editing ? (state.settings.activities||[]).slice() : activeActivities();
+    var rows = allActs
+      .map(function(a){
+        var r = computeActivityAnnualRows().find(function(x){return x.actividad.id===a.id;});
+        return r || {actividad:a, pptoPlanificado:Number(a.pptoPlanificado)||0, gastado:0, disponible:Number(a.pptoPlanificado)||0, pct:0};
+      })
+      .filter(function(r){ if (!catFilter) return true; return (r.actividad.categoria||'Sin categoría')===catFilter; })
+      .sort(function(a,b){return (a.actividad.categoria||'').localeCompare(b.actividad.categoria||'') || a.actividad.nombre.localeCompare(b.actividad.nombre);});
+
     var body = rows.map(function(r){
-      var estado = r.disponible<0 ? '<span class="pill bad">Negativo</span>' : (r.pct>85?'<span class="pill warn">Ajustado</span>':'<span class="pill ok">Dentro del presupuesto</span>');
-      var planCell;
-      if (state.editingActivityPlan === r.actividad.id){
-        planCell = '<input type="number" step="0.01" id="planEditInput" value="'+r.pptoPlanificado+'" style="width:110px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;">'
-          + ' <button class="btn small primary" data-action="plan-save" data-id="'+r.actividad.id+'">Guardar</button>'
-          + ' <button class="btn small ghost" data-action="plan-cancel">Cancelar</button>';
-      } else {
-        planCell = fmtUSD(r.pptoPlanificado)+' <button class="btn small ghost" data-action="plan-edit" data-id="'+r.actividad.id+'" title="Editar PPTO planificado">✏️</button>';
+      var a = r.actividad;
+      var estado = r.disponible<0 ? '<span class="pill bad">No cumple</span>' : '<span class="pill ok">Cumple</span>';
+      if (!editing){
+        return '<tr class="'+(r.disponible<0?'alert-row':'')+'">'
+          + '<td>'+escapeHtml(a.nombre)+'</td>'
+          + '<td>'+escapeHtml(a.categoria||'—')+'</td>'
+          + '<td class="num">'+fmtUSD(r.pptoPlanificado)+'</td>'
+          + '<td class="num">'+fmtUSD(r.gastado)+'</td>'
+          + '<td class="num">'+fmtUSD(r.disponible)+'</td>'
+          + '<td>'+estado+'</td></tr>';
       }
       return '<tr class="'+(r.disponible<0?'alert-row':'')+'">'
-        + '<td>'+escapeHtml(r.actividad.nombre)+'</td>'
-        + '<td>'+escapeHtml(r.actividad.categoria||'—')+'</td>'
-        + '<td class="num">'+planCell+'</td>'
+        + '<td><input type="text" data-action="act-cat" data-id="'+a.id+'" value="'+escapeHtml(a.categoria||'')+'" style="width:100%; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
+        + '<td><input type="text" data-action="act-nombre" data-id="'+a.id+'" value="'+escapeHtml(a.nombre)+'" style="width:100%; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
+        + '<td class="num"><input type="number" step="0.01" data-action="act-planificado" data-id="'+a.id+'" value="'+(Number(a.pptoPlanificado)||0)+'" style="width:110px; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;"></td>'
         + '<td class="num">'+fmtUSD(r.gastado)+'</td>'
         + '<td class="num">'+fmtUSD(r.disponible)+'</td>'
-        + '<td>'+estado+'</td></tr>';
+        + '<td>'+(a.activo!==false?'<span class="pill ok">Activo</span>':'<span class="pill warn">Inactivo</span>')+'</td>'
+        + '<td><button class="btn small ghost" data-action="act-toggle" data-id="'+a.id+'">'+(a.activo!==false?'Desactivar':'Reactivar')+'</button> <button class="btn small danger" data-action="act-delete" data-id="'+a.id+'">Eliminar</button></td></tr>';
     }).join('');
-    var totalRow = '<tr class="total-row">'
+
+    var totalRow = editing ? '' : ('<tr class="total-row">'
       + '<td>Total</td><td></td>'
       + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.pptoPlanificado;},0))+'</td>'
       + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.gastado;},0))+'</td>'
       + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.disponible;},0))+'</td>'
-      + '<td></td></tr>';
+      + '<td></td></tr>');
+
+    var header = editing
+      ? '<tr><th>Categoría</th><th>Actividad</th><th class="num">PPTO planificado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th><th></th></tr>'
+      : '<tr><th>Actividad</th><th>Categoría</th><th class="num">PPTO planificado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th></tr>';
+
     document.getElementById('actividadesTable').innerHTML = rows.length
-      ? '<table class="std"><tr><th>Actividad</th><th>Categoría</th><th class="num">PPTO planificado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th></tr>'+body+totalRow+'</table>'
+      ? '<table class="std">'+header+body+totalRow+'</table>'
       : '<div class="empty-state">No hay actividades que coincidan con el filtro.</div>';
+
+    document.getElementById('addActivityForm').innerHTML = editing
+      ? '<div class="form-grid" style="grid-template-columns:1fr 1.4fr 1fr auto;">'
+        + '<div class="field"><label>Categoría</label><input type="text" id="newActCat" placeholder="Ej. Plan de formación"></div>'
+        + '<div class="field"><label>Nueva actividad</label><input type="text" id="newActName" placeholder="Nombre de la actividad"></div>'
+        + '<div class="field"><label>PPTO planificado (anual)</label><input type="number" id="newActPlanificado" step="0.01" placeholder="0.00"></div>'
+        + '<div class="field" style="display:flex; align-items:flex-end;"><button class="btn primary" id="btnAddAct" style="width:100%;">Agregar</button></div></div>'
+        + '<button class="btn primary" id="btnSaveActs">✓ Guardar cambios y salir de edición</button> <span id="actMsg" style="margin-left:10px; font-size:12.5px; color:var(--fd-teal); font-weight:700;"></span>'
+      : '';
   }
 
   // ---------------- RENDER: CARGAR GASTO ----------------
@@ -635,8 +697,8 @@ tr.current-row td{background:#FFF6E4;}
     document.getElementById('monthRowHint').textContent = 'Usado para el cierre mensual en Panel oficial.';
     renderDashboardAnnualDual();
     renderDashboardMonthlyTable();
+    renderAhorroVsPlanificado();
     renderCategoriaFilter();
-    renderActivitiesAdminTable();
     renderConfigForm();
     renderActividades();
     renderActivityDatalist();
@@ -655,6 +717,7 @@ tr.current-row td{background:#FFF6E4;}
         tab.classList.add('active');
         document.getElementById('section-'+tab.dataset.tab).classList.add('active');
         state.activeTab = tab.dataset.tab;
+        document.getElementById('monthRow').style.display = (tab.dataset.tab==='oficial') ? 'flex' : 'none';
       });
     });
 
@@ -671,6 +734,8 @@ tr.current-row td{background:#FFF6E4;}
       if (!responsable){ alert('Selecciona el responsable.'); return; }
       var act = findActivityByDisplay(document.getElementById('f_actividad_search').value);
       if (!act){ alert('Selecciona una actividad válida de la lista (empieza a escribir y elige una opción).'); return; }
+      var submitBtn = document.querySelector('#expenseForm button[type="submit"]');
+      submitBtn.disabled = true;
       var now = todayISO();
       var entry = {
         id: uid(),
@@ -684,13 +749,20 @@ tr.current-row td{background:#FFF6E4;}
         fechaCarga: now,
         enPanel: false
       };
-      state.expenses.push(entry);
-      var ok = await storageSet(STORAGE_KEYS.expenses, state.expenses);
+      var newList = state.expenses.concat([entry]);
+      var ok = await storageSet(STORAGE_KEYS.expenses, newList);
       var msg = document.getElementById('formMsg');
-      if (ok){ msg.style.color='var(--fd-teal)'; msg.textContent='✓ Gasto registrado y visible para todo el equipo.'; document.getElementById('expenseForm').reset(); }
-      else { msg.style.color='var(--rust)'; msg.textContent='No se pudo guardar. Intenta de nuevo.'; }
+      if (ok){
+        state.expenses = newList;
+        msg.style.color='var(--fd-teal)'; msg.textContent='✓ Gasto registrado y visible para todo el equipo.';
+        document.getElementById('expenseForm').reset();
+      } else {
+        msg.style.color='var(--rust)';
+        msg.textContent = FIREBASE_READY ? 'No se pudo guardar. Revisa tu conexión e intenta de nuevo.' : 'Falta conectar Firebase (ver aviso arriba) — este gasto no quedó guardado.';
+      }
+      submitBtn.disabled = false;
       renderAll();
-      setTimeout(function(){msg.textContent='';}, 4000);
+      setTimeout(function(){msg.textContent='';}, 6000);
     });
 
     ['filterText','filterActividadSearch','filterMes','filterResponsable'].forEach(function(id){
@@ -756,56 +828,35 @@ tr.current-row td{background:#FFF6E4;}
       renderAll();
     });
 
-    document.getElementById('dashboardMonthlyTable').addEventListener('click', async function(e){
-      var btn = e.target.closest('button[data-action]');
-      if (!btn) return;
-      if (btn.dataset.action==='mb-edit'){
-        state.editingMonthBudget = btn.dataset.mes; renderAll();
-      } else if (btn.dataset.action==='mb-cancel'){
-        state.editingMonthBudget = null; renderAll();
-      } else if (btn.dataset.action==='mb-save'){
-        var input = document.getElementById('mbEditInput');
-        var v = parseFloat(input.value);
-        if (isNaN(v)){ alert('Monto inválido.'); return; }
-        state.settings.monthlyBudgets[btn.dataset.mes] = v;
-        state.editingMonthBudget = null;
-        await storageSet(STORAGE_KEYS.settings, state.settings);
-        renderAll();
-      }
+
+    document.getElementById('btnToggleEditActividades').addEventListener('click', function(){
+      state.editActividades = !state.editActividades;
+      renderAll();
     });
 
     document.getElementById('actividadesTable').addEventListener('click', async function(e){
       var btn = e.target.closest('button[data-action]');
       if (!btn) return;
-      if (btn.dataset.action==='plan-edit'){
-        state.editingActivityPlan = btn.dataset.id; renderAll();
-      } else if (btn.dataset.action==='plan-cancel'){
-        state.editingActivityPlan = null; renderAll();
-      } else if (btn.dataset.action==='plan-save'){
-        var input = document.getElementById('planEditInput');
-        var v = parseFloat(input.value);
-        if (isNaN(v)){ alert('Monto inválido.'); return; }
-        var a = state.settings.activities.find(function(x){return x.id===btn.dataset.id;});
-        if (a) a.pptoPlanificado = v;
-        state.editingActivityPlan = null;
-        await storageSet(STORAGE_KEYS.settings, state.settings);
+      var id = btn.dataset.id;
+      if (btn.dataset.action==='act-toggle'){
+        var a = state.settings.activities.find(function(x){return x.id===id;});
+        if (a) a.activo = a.activo===false ? true : false;
         renderAll();
+      } else if (btn.dataset.action==='act-delete'){
+        if (!confirm('¿Eliminar esta actividad? Los gastos ya cargados permanecerán.')) return;
+        state.settings.activities = state.settings.activities.filter(function(x){return x.id!==id;});
+        await storageSet(STORAGE_KEYS.settings, state.settings); renderAll();
       }
     });
 
-    document.getElementById('activitiesAdminTable').addEventListener('click', async function(e){
-      var btn = e.target.closest('button[data-action]');
-      if (btn){
-        var id = btn.dataset.id;
-        if (btn.dataset.action==='act-toggle'){
-          var a = state.settings.activities.find(function(x){return x.id===id;});
-          if (a) a.activo = a.activo===false ? true : false;
-          renderAll();
-        } else if (btn.dataset.action==='act-delete'){
-          if (!confirm('¿Eliminar esta actividad? Los gastos ya cargados permanecerán.')) return;
-          state.settings.activities = state.settings.activities.filter(function(x){return x.id!==id;});
-          await storageSet(STORAGE_KEYS.settings, state.settings); renderAll();
-        }
+    document.getElementById('addActivityForm').addEventListener('click', async function(e){
+      if (e.target.id === 'btnAddAct'){
+        var cat = document.getElementById('newActCat').value.trim();
+        var name = document.getElementById('newActName').value.trim();
+        var planificado = parseFloat(document.getElementById('newActPlanificado').value)||0;
+        if (!name){ alert('Ponle un nombre a la actividad.'); return; }
+        state.settings.activities.push({id:uid(), nombre:name, categoria:cat, pptoPlanificado: planificado, activo:true});
+        await storageSet(STORAGE_KEYS.settings, state.settings); renderAll();
         return;
       }
       if (e.target.id === 'btnSaveActs'){
@@ -817,21 +868,15 @@ tr.current-row td{background:#FFF6E4;}
           var a = state.settings.activities.find(function(x){return x.id===inp.dataset.id;});
           if (a) a.categoria = inp.value.trim();
         });
+        document.querySelectorAll('input[data-action="act-planificado"]').forEach(function(inp){
+          var a = state.settings.activities.find(function(x){return x.id===inp.dataset.id;});
+          if (a) a.pptoPlanificado = parseFloat(inp.value)||0;
+        });
         var ok = await storageSet(STORAGE_KEYS.settings, state.settings);
-        var msg = document.getElementById('actMsg');
-        if (msg) msg.textContent = ok ? '✓ Guardado.' : 'Error al guardar.';
+        state.editActividades = false;
+        if (!ok) alert('No se pudo guardar. Revisa tu conexión e intenta de nuevo.');
         renderAll();
       }
-    });
-
-    document.getElementById('addActivityForm').addEventListener('click', async function(e){
-      if (e.target.id !== 'btnAddAct') return;
-      var cat = document.getElementById('newActCat').value.trim();
-      var name = document.getElementById('newActName').value.trim();
-      var planificado = parseFloat(document.getElementById('newActPlanificado').value)||0;
-      if (!name){ alert('Ponle un nombre a la actividad.'); return; }
-      state.settings.activities.push({id:uid(), nombre:name, categoria:cat, pptoPlanificado: planificado, activo:true});
-      await storageSet(STORAGE_KEYS.settings, state.settings); renderAll();
     });
 
     document.getElementById('configForm').addEventListener('click', async function(e){
@@ -853,12 +898,11 @@ tr.current-row td{background:#FFF6E4;}
     renderAll();
     document.getElementById('loadingOverlay').style.display='none';
     document.getElementById('app').style.display='block';
-    setInterval(async function(){
-      var prevTab=state.activeTab, prevMonth=state.currentMonth;
-      await loadAll();
-      state.activeTab=prevTab; state.currentMonth=prevMonth;
-      renderAll();
-    }, 20000);
+    if (!FIREBASE_READY || !db){
+      document.getElementById('setupBanner').style.display='block';
+    } else {
+      subscribeRealtime();
+    }
   }
   init();
 })();
