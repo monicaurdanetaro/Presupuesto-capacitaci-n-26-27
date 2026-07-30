@@ -200,19 +200,8 @@ tr.current-row td{background:#FFF6E4;}
     </div>
     <div class="panel">
       <h2>Presupuesto por mes — año fiscal completo</h2>
-      <div class="hint-spacer">Los 12 meses de Agosto 2026 a Julio 2027, no solo el mes en edición.</div>
+      <div class="hint-spacer">Los 12 meses de Agosto 2026 a Julio 2027, siempre por año fiscal completo. Usa el lápiz ✏️ para corregir el presupuesto de un mes.</div>
       <div id="dashboardMonthlyTable"></div>
-    </div>
-    <div class="panel">
-      <h2>Presupuesto mensual global (editable)</h2>
-      <div class="hint-spacer">Cifras tomadas de tu archivo de presupuesto. Ajusta si tu Excel cambia.</div>
-      <div id="monthlyBudgetTable"></div>
-    </div>
-    <div class="panel">
-      <h2>Actividades y su presupuesto</h2>
-      <div class="hint-spacer">Edita el presupuesto del "Mes en edición" (arriba) para cualquier actividad, o su PPTO planificado anual. Agrega actividades nuevas cuando el equipo las incorpore.</div>
-      <div id="activitiesAdminTable"></div>
-      <div id="addActivityForm" style="margin-top:14px;"></div>
     </div>
     <div class="panel">
       <h2>Objetivo de ahorro</h2>
@@ -224,11 +213,17 @@ tr.current-row td{background:#FFF6E4;}
   <div class="section" id="section-actividades">
     <div class="panel">
       <h2>Gasto por actividad — año fiscal completo</h2>
-      <div class="hint-spacer">Presupuesto real: suma del año. PPTO planificado: el número adoptado como plan. Filas en rojo: disponible negativo.</div>
+      <div class="hint-spacer">PPTO planificado: el número adoptado como plan — usa el lápiz ✏️ para editarlo cuando quieras. Filas en rojo: disponible negativo.</div>
       <div class="toolbar">
         <select id="filterCategoria"><option value="">Todos los proyectos</option></select>
       </div>
       <div id="actividadesTable"></div>
+    </div>
+    <div class="panel">
+      <h2>Gestionar actividades</h2>
+      <div class="hint-spacer">Renombra, cambia de categoría, desactiva o elimina actividades. Agrega actividades nuevas cuando el equipo las incorpore.</div>
+      <div id="activitiesAdminTable"></div>
+      <div id="addActivityForm" style="margin-top:14px;"></div>
     </div>
   </div>
 
@@ -334,7 +329,8 @@ tr.current-row td{background:#FFF6E4;}
   var state = {
     settings: { activities: [], monthlyBudgets: {}, ahorroPct: 2 },
     expenses: [], official: [],
-    activeTab: 'dashboard', currentMonth: FISCAL_MONTHS[0]
+    activeTab: 'dashboard', currentMonth: FISCAL_MONTHS[0],
+    editingMonthBudget: null, editingActivityPlan: null
   };
 
   // ---------------- STORAGE ----------------
@@ -353,8 +349,7 @@ tr.current-row td{background:#FFF6E4;}
 
   function seedDefaults(){
     var activities = SEED_ACTIVITIES.map(function(a){
-      var meses = Object.assign({}, a.meses);
-      return {id:uid(), nombre:a.nombre, categoria:a.categoria, meses: meses, pptoPlanificado: sumMeses(meses), activo:true};
+      return {id:uid(), nombre:a.nombre, categoria:a.categoria, pptoPlanificado: sumMeses(a.meses), activo:true};
     });
     return {
       activities: activities,
@@ -371,7 +366,7 @@ tr.current-row td{background:#FFF6E4;}
     if (!s.monthlyBudgets) s.monthlyBudgets = {};
     if (!s.activities) s.activities = [];
     if (typeof s.ahorroPct !== 'number') s.ahorroPct = 2;
-    s.activities.forEach(function(a){ if (typeof a.pptoPlanificado !== 'number') a.pptoPlanificado = sumMeses(a.meses); });
+    s.activities.forEach(function(a){ if (typeof a.pptoPlanificado !== 'number') a.pptoPlanificado = 0; });
     state.settings = s;
     state.expenses = e || [];
     state.official = o || [];
@@ -385,7 +380,6 @@ tr.current-row td{background:#FFF6E4;}
   function expensesForMonth(mes){ return state.expenses.filter(function(x){return x.mes===mes;}); }
   function expensesForActivityYear(actId){ return state.expenses.filter(function(x){return x.actividadId===actId && FISCAL_MONTHS.indexOf(x.mes)!==-1;}); }
   function officialTotalFor(mes){ var f=state.official.find(function(x){return x.mes===mes;}); return f? f.monto : null; }
-  function actBudget(act, mes){ return Number((act.meses||{})[mes])||0; }
 
   function computeGlobalMonth(mes){
     var presupuestoReal = Number(state.settings.monthlyBudgets[mes])||0;
@@ -404,12 +398,11 @@ tr.current-row td{background:#FFF6E4;}
 
   function computeActivityAnnualRows(){
     return activeActivities().map(function(a){
-      var presupuestoReal = sumMeses(a.meses);
       var pptoPlanificado = Number(a.pptoPlanificado)||0;
       var gastado = expensesForActivityYear(a.id).reduce(function(s,x){return s+Number(x.monto||0);},0);
       var disponible = pptoPlanificado - gastado;
       var pct = pptoPlanificado>0 ? (gastado/pptoPlanificado*100) : 0;
-      return {actividad:a, presupuestoReal:presupuestoReal, pptoPlanificado:pptoPlanificado, gastado:gastado, disponible:disponible, pct:pct};
+      return {actividad:a, pptoPlanificado:pptoPlanificado, gastado:gastado, disponible:disponible, pct:pct};
     });
   }
 
@@ -447,56 +440,48 @@ tr.current-row td{background:#FFF6E4;}
     var body = FISCAL_MONTHS.map(function(m){
       var g = computeGlobalMonth(m);
       var isCurrent = m===state.currentMonth;
+      var presupuestoCell;
+      if (state.editingMonthBudget === m){
+        presupuestoCell = '<input type="number" step="0.01" id="mbEditInput" value="'+g.presupuestoReal+'" style="width:110px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;">'
+          + ' <button class="btn small primary" data-action="mb-save" data-mes="'+m+'">Guardar</button>'
+          + ' <button class="btn small ghost" data-action="mb-cancel">Cancelar</button>';
+      } else {
+        presupuestoCell = fmtUSD(g.presupuestoReal)+' <button class="btn small ghost" data-action="mb-edit" data-mes="'+m+'" title="Editar presupuesto">✏️</button>';
+      }
       return '<tr class="'+(isCurrent?'current-row':'')+(g.diferenciaReal<0?' alert-row':'')+'">'
         + '<td>'+escapeHtml(monthLabel(m))+'</td>'
-        + '<td class="num">'+fmtUSD(g.presupuestoReal)+'</td>'
+        + '<td class="num">'+presupuestoCell+'</td>'
         + '<td class="num">'+(g.oficial===null?'<span style="color:var(--ink-soft);">Sin cargar</span>':fmtUSD(g.oficial))+'</td>'
-        + '<td class="num">'+fmtUSD(g.procura)+'</td>'
         + '<td class="num">'+fmtUSD(g.gastoTotal)+'</td>'
         + '<td class="num">'+fmtUSD(g.diferenciaReal)+'</td></tr>';
     }).join('');
     var t = FISCAL_MONTHS.reduce(function(acc,m){
       var g = computeGlobalMonth(m);
-      acc.presupuesto+=g.presupuestoReal; acc.oficial+=g.oficialVal; acc.procura+=g.procura; acc.total+=g.gastoTotal; acc.diff+=g.diferenciaReal;
+      acc.presupuesto+=g.presupuestoReal; acc.oficial+=g.oficialVal; acc.total+=g.gastoTotal; acc.diff+=g.diferenciaReal;
       return acc;
-    }, {presupuesto:0,oficial:0,procura:0,total:0,diff:0});
-    var totalRow = '<tr class="total-row"><td>Total año</td><td class="num">'+fmtUSD(t.presupuesto)+'</td><td class="num">'+fmtUSD(t.oficial)+'</td><td class="num">'+fmtUSD(t.procura)+'</td><td class="num">'+fmtUSD(t.total)+'</td><td class="num">'+fmtUSD(t.diff)+'</td></tr>';
+    }, {presupuesto:0,oficial:0,total:0,diff:0});
+    var totalRow = '<tr class="total-row"><td>Total año</td><td class="num">'+fmtUSD(t.presupuesto)+'</td><td class="num">'+fmtUSD(t.oficial)+'</td><td class="num">'+fmtUSD(t.total)+'</td><td class="num">'+fmtUSD(t.diff)+'</td></tr>';
     document.getElementById('dashboardMonthlyTable').innerHTML =
-      '<table class="std"><tr><th>Mes</th><th class="num">Presupuesto</th><th class="num">Gasto real (panel)</th><th class="num">Gasto procura</th><th class="num">Gasto total</th><th class="num">Diferencia</th></tr>'+body+totalRow+'</table>';
-  }
-
-  function renderMonthlyBudgetTable(){
-    var body = FISCAL_MONTHS.map(function(m){
-      var val = state.settings.monthlyBudgets[m];
-      return '<tr><td>'+escapeHtml(monthLabel(m))+'</td>'
-        + '<td class="num"><input type="number" step="0.01" data-action="mb-input" data-mes="'+m+'" value="'+(val!==undefined?val:'')+'" style="width:130px; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;"></td></tr>';
-    }).join('');
-    document.getElementById('monthlyBudgetTable').innerHTML =
-      '<table class="std"><tr><th>Mes</th><th class="num">Presupuesto real</th></tr>'+body+'</table>'
-      + '<div style="margin-top:14px;"><button class="btn primary" id="btnSaveMonthly">Guardar presupuestos del año</button> <span id="mbMsg" style="margin-left:10px; font-size:12.5px; color:var(--fd-teal); font-weight:700;"></span></div>';
+      '<table class="std"><tr><th>Mes</th><th class="num">Presupuesto</th><th class="num">Gasto real (panel)</th><th class="num">Gasto total</th><th class="num">Diferencia</th></tr>'+body+totalRow+'</table>';
   }
 
   function renderActivitiesAdminTable(){
     var actList = (state.settings.activities||[]).slice().sort(function(a,b){return (a.categoria||'').localeCompare(b.categoria||'') || a.nombre.localeCompare(b.nombre);});
     var body = actList.map(function(a){
-      var val = (a.meses||{})[state.currentMonth];
       return '<tr>'
         + '<td><input type="text" data-action="act-cat" data-id="'+a.id+'" value="'+escapeHtml(a.categoria||'')+'" style="width:100%; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
         + '<td><input type="text" data-action="act-nombre" data-id="'+a.id+'" value="'+escapeHtml(a.nombre)+'" style="width:100%; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
-        + '<td class="num"><input type="number" step="0.01" data-action="act-presupuesto" data-id="'+a.id+'" value="'+(val!==undefined?val:0)+'" style="width:110px; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;"></td>'
-        + '<td class="num"><input type="number" step="0.01" data-action="act-planificado" data-id="'+a.id+'" value="'+(Number(a.pptoPlanificado)||0)+'" style="width:110px; padding:6px 8px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;"></td>'
         + '<td>'+(a.activo!==false?'<span class="pill ok">Activo</span>':'<span class="pill warn">Inactivo</span>')+'</td>'
         + '<td><button class="btn small ghost" data-action="act-toggle" data-id="'+a.id+'">'+(a.activo!==false?'Desactivar':'Reactivar')+'</button> <button class="btn small danger" data-action="act-delete" data-id="'+a.id+'">Eliminar</button></td></tr>';
     }).join('');
     document.getElementById('activitiesAdminTable').innerHTML =
-      '<table class="std"><tr><th>Categoría</th><th>Actividad</th><th class="num">Presupuesto ('+escapeHtml(monthLabel(state.currentMonth))+')</th><th class="num">PPTO planificado (anual)</th><th>Estado</th><th></th></tr>'+body+'</table>'
-      + '<div style="margin-top:14px;"><button class="btn primary" id="btnSaveActs">Guardar cambios de actividades</button> <span id="actMsg" style="margin-left:10px; font-size:12.5px; color:var(--fd-teal); font-weight:700;"></span></div>';
+      '<table class="std"><tr><th>Categoría</th><th>Actividad</th><th>Estado</th><th></th></tr>'+body+'</table>'
+      + '<div style="margin-top:14px;"><button class="btn primary" id="btnSaveActs">Guardar cambios</button> <span id="actMsg" style="margin-left:10px; font-size:12.5px; color:var(--fd-teal); font-weight:700;"></span></div>';
 
     document.getElementById('addActivityForm').innerHTML =
-      '<div class="form-grid" style="grid-template-columns:1fr 1.4fr 1fr 1fr auto;">'
+      '<div class="form-grid" style="grid-template-columns:1fr 1.4fr 1fr auto;">'
       + '<div class="field"><label>Categoría</label><input type="text" id="newActCat" placeholder="Ej. Plan de formación"></div>'
       + '<div class="field"><label>Nueva actividad</label><input type="text" id="newActName" placeholder="Nombre de la actividad"></div>'
-      + '<div class="field"><label>Presupuesto de '+escapeHtml(monthLabel(state.currentMonth))+'</label><input type="number" id="newActBudget" step="0.01" placeholder="0.00"></div>'
       + '<div class="field"><label>PPTO planificado (anual)</label><input type="number" id="newActPlanificado" step="0.01" placeholder="0.00"></div>'
       + '<div class="field" style="display:flex; align-items:flex-end;"><button class="btn primary" id="btnAddAct" style="width:100%;">Agregar</button></div></div>';
   }
@@ -525,24 +510,30 @@ tr.current-row td{background:#FFF6E4;}
     });
     var body = rows.map(function(r){
       var estado = r.disponible<0 ? '<span class="pill bad">Negativo</span>' : (r.pct>85?'<span class="pill warn">Ajustado</span>':'<span class="pill ok">Dentro del presupuesto</span>');
+      var planCell;
+      if (state.editingActivityPlan === r.actividad.id){
+        planCell = '<input type="number" step="0.01" id="planEditInput" value="'+r.pptoPlanificado+'" style="width:110px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;">'
+          + ' <button class="btn small primary" data-action="plan-save" data-id="'+r.actividad.id+'">Guardar</button>'
+          + ' <button class="btn small ghost" data-action="plan-cancel">Cancelar</button>';
+      } else {
+        planCell = fmtUSD(r.pptoPlanificado)+' <button class="btn small ghost" data-action="plan-edit" data-id="'+r.actividad.id+'" title="Editar PPTO planificado">✏️</button>';
+      }
       return '<tr class="'+(r.disponible<0?'alert-row':'')+'">'
         + '<td>'+escapeHtml(r.actividad.nombre)+'</td>'
         + '<td>'+escapeHtml(r.actividad.categoria||'—')+'</td>'
-        + '<td class="num">'+fmtUSD(r.presupuestoReal)+'</td>'
-        + '<td class="num">'+fmtUSD(r.pptoPlanificado)+'</td>'
+        + '<td class="num">'+planCell+'</td>'
         + '<td class="num">'+fmtUSD(r.gastado)+'</td>'
         + '<td class="num">'+fmtUSD(r.disponible)+'</td>'
         + '<td>'+estado+'</td></tr>';
     }).join('');
     var totalRow = '<tr class="total-row">'
       + '<td>Total</td><td></td>'
-      + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.presupuestoReal;},0))+'</td>'
       + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.pptoPlanificado;},0))+'</td>'
       + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.gastado;},0))+'</td>'
       + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.disponible;},0))+'</td>'
       + '<td></td></tr>';
     document.getElementById('actividadesTable').innerHTML = rows.length
-      ? '<table class="std"><tr><th>Actividad</th><th>Categoría</th><th class="num">Presupuesto real</th><th class="num">PPTO planificado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th></tr>'+body+totalRow+'</table>'
+      ? '<table class="std"><tr><th>Actividad</th><th>Categoría</th><th class="num">PPTO planificado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th></tr>'+body+totalRow+'</table>'
       : '<div class="empty-state">No hay actividades que coincidan con el filtro.</div>';
   }
 
@@ -641,10 +632,9 @@ tr.current-row td{background:#FFF6E4;}
 
   // ---------------- MASTER RENDER ----------------
   function renderAll(){
-    document.getElementById('monthRowHint').textContent = 'Usado para editar presupuestos por actividad y para el cierre del panel oficial.';
+    document.getElementById('monthRowHint').textContent = 'Usado para el cierre mensual en Panel oficial.';
     renderDashboardAnnualDual();
     renderDashboardMonthlyTable();
-    renderMonthlyBudgetTable();
     renderCategoriaFilter();
     renderActivitiesAdminTable();
     renderConfigForm();
@@ -766,17 +756,41 @@ tr.current-row td{background:#FFF6E4;}
       renderAll();
     });
 
-    document.getElementById('monthlyBudgetTable').addEventListener('click', async function(e){
-      if (e.target.id !== 'btnSaveMonthly') return;
-      document.querySelectorAll('input[data-action="mb-input"]').forEach(function(inp){
-        var v = parseFloat(inp.value);
-        if (!isNaN(v)) state.settings.monthlyBudgets[inp.dataset.mes] = v;
-        else delete state.settings.monthlyBudgets[inp.dataset.mes];
-      });
-      var ok = await storageSet(STORAGE_KEYS.settings, state.settings);
-      var msg = document.getElementById('mbMsg');
-      if (msg) msg.textContent = ok ? '✓ Guardado.' : 'Error al guardar.';
-      renderAll();
+    document.getElementById('dashboardMonthlyTable').addEventListener('click', async function(e){
+      var btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      if (btn.dataset.action==='mb-edit'){
+        state.editingMonthBudget = btn.dataset.mes; renderAll();
+      } else if (btn.dataset.action==='mb-cancel'){
+        state.editingMonthBudget = null; renderAll();
+      } else if (btn.dataset.action==='mb-save'){
+        var input = document.getElementById('mbEditInput');
+        var v = parseFloat(input.value);
+        if (isNaN(v)){ alert('Monto inválido.'); return; }
+        state.settings.monthlyBudgets[btn.dataset.mes] = v;
+        state.editingMonthBudget = null;
+        await storageSet(STORAGE_KEYS.settings, state.settings);
+        renderAll();
+      }
+    });
+
+    document.getElementById('actividadesTable').addEventListener('click', async function(e){
+      var btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      if (btn.dataset.action==='plan-edit'){
+        state.editingActivityPlan = btn.dataset.id; renderAll();
+      } else if (btn.dataset.action==='plan-cancel'){
+        state.editingActivityPlan = null; renderAll();
+      } else if (btn.dataset.action==='plan-save'){
+        var input = document.getElementById('planEditInput');
+        var v = parseFloat(input.value);
+        if (isNaN(v)){ alert('Monto inválido.'); return; }
+        var a = state.settings.activities.find(function(x){return x.id===btn.dataset.id;});
+        if (a) a.pptoPlanificado = v;
+        state.editingActivityPlan = null;
+        await storageSet(STORAGE_KEYS.settings, state.settings);
+        renderAll();
+      }
     });
 
     document.getElementById('activitiesAdminTable').addEventListener('click', async function(e){
@@ -803,14 +817,6 @@ tr.current-row td{background:#FFF6E4;}
           var a = state.settings.activities.find(function(x){return x.id===inp.dataset.id;});
           if (a) a.categoria = inp.value.trim();
         });
-        document.querySelectorAll('input[data-action="act-presupuesto"]').forEach(function(inp){
-          var a = state.settings.activities.find(function(x){return x.id===inp.dataset.id;});
-          if (a){ if (!a.meses) a.meses = {}; a.meses[state.currentMonth] = parseFloat(inp.value)||0; }
-        });
-        document.querySelectorAll('input[data-action="act-planificado"]').forEach(function(inp){
-          var a = state.settings.activities.find(function(x){return x.id===inp.dataset.id;});
-          if (a) a.pptoPlanificado = parseFloat(inp.value)||0;
-        });
         var ok = await storageSet(STORAGE_KEYS.settings, state.settings);
         var msg = document.getElementById('actMsg');
         if (msg) msg.textContent = ok ? '✓ Guardado.' : 'Error al guardar.';
@@ -822,11 +828,9 @@ tr.current-row td{background:#FFF6E4;}
       if (e.target.id !== 'btnAddAct') return;
       var cat = document.getElementById('newActCat').value.trim();
       var name = document.getElementById('newActName').value.trim();
-      var budget = parseFloat(document.getElementById('newActBudget').value)||0;
       var planificado = parseFloat(document.getElementById('newActPlanificado').value)||0;
       if (!name){ alert('Ponle un nombre a la actividad.'); return; }
-      var meses = {}; meses[state.currentMonth] = budget;
-      state.settings.activities.push({id:uid(), nombre:name, categoria:cat, meses:meses, pptoPlanificado: planificado || budget, activo:true});
+      state.settings.activities.push({id:uid(), nombre:name, categoria:cat, pptoPlanificado: planificado, activo:true});
       await storageSet(STORAGE_KEYS.settings, state.settings); renderAll();
     });
 
