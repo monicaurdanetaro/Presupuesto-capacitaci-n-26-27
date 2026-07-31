@@ -193,6 +193,7 @@ tr.current-row td{background:#FFF6E4;}
     <button class="tab active" data-tab="dashboard">Resumen</button>
     <button class="tab" data-tab="actividades">Por actividad</button>
     <button class="tab" data-tab="cargar">Cargar gasto</button>
+    <button class="tab" data-tab="seguimiento">Seguimiento</button>
     <button class="tab" data-tab="oficial">Panel oficial</button>
   </div>
 
@@ -244,10 +245,23 @@ tr.current-row td{background:#FFF6E4;}
     <div class="panel">
       <h2>Registrar factura cargada en procura</h2>
       <div class="hint-spacer">Cualquier persona del equipo puede registrar aquí. La fecha y el mes de carga se toman automáticamente.</div>
+
+      <div id="ocrBlock" style="background:var(--fd-blue-pale); border:1px solid var(--line-strong); border-radius:8px; padding:14px 16px; margin-bottom:18px;">
+        <div style="font-size:12.5px; font-weight:700; color:var(--fd-navy); margin-bottom:8px;">📄 Leer factura automáticamente (opcional)</div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <input type="file" id="f_factura_file" accept="image/*,.pdf" style="font-size:12.5px;">
+          <button type="button" class="btn ghost small" id="btnLeerFactura">🔍 Leer con IA</button>
+          <button type="button" class="btn ghost small" id="btnConfigurarLlave">⚙️ Configurar llave de IA</button>
+          <span id="ocrMsg" style="font-size:12px; color:var(--ink-soft);"></span>
+        </div>
+        <div style="font-size:11px; color:var(--ink-soft); margin-top:6px;">Sube la foto o PDF de la factura y esto intentará llenar el número de factura y el monto. Siempre revisa que estén correctos antes de registrar. La llave de IA se guarda solo en este navegador, nunca en GitHub — cada persona la configura una vez.</div>
+      </div>
+
       <form id="expenseForm">
         <div class="form-grid">
           <div class="field"><label>Nº solicitud interna <span class="req">*</span></label><input type="text" id="f_solicitud" required placeholder="Ej. SI-2026-0143"></div>
           <div class="field"><label>Proveedor <span class="req">*</span></label><input type="text" id="f_proveedor" required placeholder="Nombre del proveedor"></div>
+          <div class="field"><label>Nº de factura <span class="req">*</span></label><input type="text" id="f_factura" required placeholder="Ej. FAC-00981"></div>
           <div class="field">
             <label>Actividad <span class="req">*</span></label>
             <input type="text" id="f_actividad_search" list="activityDatalist" required placeholder="Buscar actividad por nombre…" autocomplete="off">
@@ -277,7 +291,7 @@ tr.current-row td{background:#FFF6E4;}
 
     <div class="panel">
       <h2>Gastos cargados</h2>
-      <div class="hint-spacer">Vista de todo el equipo. Cualquiera puede corregir monto, mes, o marcar si ya se vio en el panel oficial.</div>
+      <div class="hint-spacer">Vista de todo el equipo. Cualquiera puede corregir monto, mes, o marcar si ya se vio en el panel oficial. Para el trámite completo (OC, recepción, aprobación) ve a la pestaña <strong>Seguimiento</strong>.</div>
       <div class="toolbar">
         <input type="text" id="filterText" placeholder="Buscar proveedor, concepto o solicitud…">
         <input type="text" id="filterActividadSearch" list="activityDatalist" placeholder="Filtrar por actividad…" autocomplete="off">
@@ -290,6 +304,19 @@ tr.current-row td{background:#FFF6E4;}
         </select>
       </div>
       <div id="expensesTable"></div>
+    </div>
+  </div>
+
+  <!-- SEGUIMIENTO -->
+  <div class="section" id="section-seguimiento">
+    <div class="panel">
+      <h2>Seguimiento del trámite por factura</h2>
+      <div class="hint-spacer">El estado se calcula solo: aprobación → orden de compra → carga en CxP y factura en Drive (un solo check) → completado. Usa "Copiar" para pegar Proveedor / OC / Factura / Recepción / Descripción en el Excel de Cuentas por Pagar.</div>
+      <div class="toolbar">
+        <input type="text" id="segFilterText" placeholder="Buscar proveedor, factura o solicitud…">
+        <select id="segFilterEstado"><option value="">Todos los estados</option></select>
+      </div>
+      <div id="seguimientoTable"></div>
     </div>
   </div>
 
@@ -320,6 +347,16 @@ tr.current-row td{background:#FFF6E4;}
   };
   // ============================================================================
 
+  // ======= LLAVE DE GEMINI (para leer facturas automáticamente) =======
+  // NO se guarda en este archivo (así nunca queda expuesta en GitHub).
+  // Cada persona la pega una sola vez con el botón "⚙️ Configurar llave de IA"
+  // y queda guardada solo en su propio navegador (localStorage).
+  // Consíguela gratis en https://aistudio.google.com/app/apikey
+  var GEMINI_KEY_STORAGE = 'ftdcap_gemini_key';
+  function getGeminiKey(){ return localStorage.getItem(GEMINI_KEY_STORAGE) || ''; }
+  function setGeminiKey(k){ localStorage.setItem(GEMINI_KEY_STORAGE, k); }
+  // ======================================================================
+
   var STORAGE_KEYS = { settings:'ftdcap/settings', expenses:'ftdcap/expenses', official:'ftdcap/official' };
   var MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var FISCAL_MONTHS = genMonthRange('2026-08', '2027-07');
@@ -341,6 +378,40 @@ tr.current-row td{background:#FFF6E4;}
   }
   function escapeHtml(s){
     return String(s==null?'':s).replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});
+  }
+
+  // ---------------- OCR DE FACTURAS (Gemini) ----------------
+  function fileToBase64(file){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onload = function(){ resolve(reader.result.split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  async function extractInvoiceData(base64, mimeType){
+    var key = getGeminiKey();
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=' + key;
+    var body = {
+      contents: [{ parts: [
+        { text: 'Extrae de esta factura el número de factura y el monto total en dólares (USD). Responde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"numeroFactura": "...", "monto": 123.45}. Si no encuentras un dato usa null en ese campo.' },
+        { inline_data: { mime_type: mimeType, data: base64 } }
+      ]}]
+    };
+    var res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error('Gemini API error: '+res.status);
+    var data = await res.json();
+    var text = data.candidates[0].content.parts[0].text;
+    text = text.replace(/```json/gi,'').replace(/```/g,'').trim();
+    return JSON.parse(text);
+  }
+
+  // ---------------- ESTADO AUTOMÁTICO DEL TRÁMITE ----------------
+  function computeEstadoTramite(x){
+    if (!x.aprobado) return {label:'Esperando aprobación', cls:'warn'};
+    if (!x.ordenCompra) return {label:'Esperando OC', cls:'warn'};
+    if (!x.cargadoCxP) return {label:'Por cargar en CxP', cls:'info'};
+    return {label:'Completado', cls:'ok'};
   }
 
   // ---------------- SEED DATA (from real Ago26-Jul27 budget file) ----------------
@@ -648,6 +719,7 @@ tr.current-row td{background:#FFF6E4;}
       return '<tr>'
         + '<td class="mono">'+escapeHtml(x.solicitud)+'</td>'
         + '<td>'+escapeHtml(x.proveedor)+'</td>'
+        + '<td class="mono">'+escapeHtml(x.numeroFactura||'—')+'</td>'
         + '<td>'+escapeHtml(x.concepto)+'</td>'
         + '<td>'+escapeHtml(activityName(x.actividadId))+'</td>'
         + '<td class="num">'+fmtUSD(x.monto)+'</td>'
@@ -659,11 +731,52 @@ tr.current-row td{background:#FFF6E4;}
     }).join('');
 
     document.getElementById('expensesTable').innerHTML = list.length
-      ? '<table class="std"><tr><th>Solicitud</th><th>Proveedor</th><th>Concepto</th><th>Actividad</th><th class="num">Monto</th><th>Mes</th><th>Fecha carga</th><th>Responsable</th><th>En panel</th><th></th></tr>'+body+'</table>'
+      ? '<table class="std"><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Concepto</th><th>Actividad</th><th class="num">Monto</th><th>Mes</th><th>Fecha carga</th><th>Responsable</th><th>En panel</th><th></th></tr>'+body+'</table>'
       : '<div class="empty-state">No hay gastos que coincidan con el filtro.</div>';
   }
 
   // ---------------- RENDER: PANEL OFICIAL ----------------
+  // ---------------- RENDER: SEGUIMIENTO ----------------
+  function renderSeguimientoFilters(){
+    var sel = document.getElementById('segFilterEstado');
+    var current = sel.value;
+    var labels = ['Esperando aprobación','Esperando OC','Por cargar en CxP','Completado'];
+    sel.innerHTML = '<option value="">Todos los estados</option>' + labels.map(function(l){return '<option value="'+escapeHtml(l)+'">'+escapeHtml(l)+'</option>';}).join('');
+    sel.value = current;
+  }
+
+  function renderSeguimientoTable(){
+    var textFilter = (document.getElementById('segFilterText').value||'').toLowerCase();
+    var estadoFilter = document.getElementById('segFilterEstado').value;
+    var list = state.expenses.filter(function(x){
+      var estado = computeEstadoTramite(x);
+      if (estadoFilter && estado.label!==estadoFilter) return false;
+      if (textFilter){
+        var hay=(x.proveedor+' '+x.numeroFactura+' '+x.solicitud).toLowerCase();
+        if (hay.indexOf(textFilter)===-1) return false;
+      }
+      return true;
+    }).sort(function(a,b){return (b.fechaCarga||'').localeCompare(a.fechaCarga||'');});
+
+    var body = list.map(function(x){
+      var estado = computeEstadoTramite(x);
+      return '<tr>'
+        + '<td class="mono">'+escapeHtml(x.solicitud)+'</td>'
+        + '<td>'+escapeHtml(x.proveedor)+'</td>'
+        + '<td><input type="text" data-action="seg-factura" data-id="'+x.id+'" value="'+escapeHtml(x.numeroFactura||'')+'" style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
+        + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-aprobado" data-id="'+x.id+'" '+(x.aprobado?'checked':'')+'></div></td>'
+        + '<td><input type="text" data-action="seg-oc" data-id="'+x.id+'" value="'+escapeHtml(x.ordenCompra||'')+'" placeholder="Sin OC" style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
+        + '<td><input type="text" data-action="seg-recepcion" data-id="'+x.id+'" value="'+escapeHtml(x.numeroRecepcion||'')+'" placeholder="Sin recibir" style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
+        + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-cxp" data-id="'+x.id+'" '+(x.cargadoCxP?'checked':'')+' title="Cargado en el Excel de CxP y factura adjunta en Drive"></div></td>'
+        + '<td><span class="pill '+estado.cls+'">'+escapeHtml(estado.label)+'</span></td>'
+        + '<td><button class="btn small primary" data-action="seg-copiar" data-id="'+x.id+'">📋 Copiar</button></td></tr>';
+    }).join('');
+
+    document.getElementById('seguimientoTable').innerHTML = list.length
+      ? '<table class="std"><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Aprobado</th><th>Orden de compra</th><th>Nº Recepción</th><th>En CxP y Drive</th><th>Estado</th><th></th></tr>'+body+'</table>'
+      : '<div class="empty-state">No hay gastos que coincidan con el filtro.</div>';
+  }
+
   function renderOficial(){
     var g = computeGlobalMonth(state.currentMonth);
     document.getElementById('oficialTotalForm').innerHTML =
@@ -705,6 +818,8 @@ tr.current-row td{background:#FFF6E4;}
     renderExpenseForm();
     renderExpenseFilters();
     renderExpensesTable();
+    renderSeguimientoFilters();
+    renderSeguimientoTable();
     renderOficial();
   }
 
@@ -741,13 +856,18 @@ tr.current-row td{background:#FFF6E4;}
         id: uid(),
         solicitud: document.getElementById('f_solicitud').value.trim(),
         proveedor: document.getElementById('f_proveedor').value.trim(),
+        numeroFactura: document.getElementById('f_factura').value.trim(),
         actividadId: act.id,
         concepto: document.getElementById('f_concepto').value.trim(),
         monto: parseFloat(document.getElementById('f_monto').value)||0,
         mes: now.slice(0,7),
         cargadoPor: responsable,
         fechaCarga: now,
-        enPanel: false
+        enPanel: false,
+        aprobado: false,
+        ordenCompra: '',
+        numeroRecepcion: '',
+        cargadoCxP: false
       };
       var newList = state.expenses.concat([entry]);
       var ok = await storageSet(STORAGE_KEYS.expenses, newList);
@@ -756,6 +876,7 @@ tr.current-row td{background:#FFF6E4;}
         state.expenses = newList;
         msg.style.color='var(--fd-teal)'; msg.textContent='✓ Gasto registrado y visible para todo el equipo.';
         document.getElementById('expenseForm').reset();
+        document.getElementById('ocrMsg').textContent = '';
       } else {
         msg.style.color='var(--rust)';
         msg.textContent = FIREBASE_READY ? 'No se pudo guardar. Revisa tu conexión e intenta de nuevo.' : 'Falta conectar Firebase (ver aviso arriba) — este gasto no quedó guardado.';
@@ -763,6 +884,35 @@ tr.current-row td{background:#FFF6E4;}
       submitBtn.disabled = false;
       renderAll();
       setTimeout(function(){msg.textContent='';}, 6000);
+    });
+
+    document.getElementById('btnLeerFactura').addEventListener('click', async function(){
+      var fileInput = document.getElementById('f_factura_file');
+      var ocrMsg = document.getElementById('ocrMsg');
+      if (!fileInput.files || !fileInput.files[0]){ ocrMsg.style.color='var(--rust)'; ocrMsg.textContent='Primero elige un archivo.'; return; }
+      if (!getGeminiKey()){
+        var entered = prompt('Pega tu llave de Gemini (solo se guarda en este navegador, nunca en GitHub):');
+        if (!entered){ ocrMsg.style.color='var(--rust)'; ocrMsg.textContent='Necesitas la llave para usar esta función.'; return; }
+        setGeminiKey(entered.trim());
+      }
+      var file = fileInput.files[0];
+      ocrMsg.style.color='var(--ink-soft)'; ocrMsg.textContent='Leyendo factura…';
+      try{
+        var base64 = await fileToBase64(file);
+        var result = await extractInvoiceData(base64, file.type);
+        if (result.numeroFactura) document.getElementById('f_factura').value = result.numeroFactura;
+        if (result.monto!==null && result.monto!==undefined) document.getElementById('f_monto').value = result.monto;
+        ocrMsg.style.color='var(--fd-teal)'; ocrMsg.textContent='✓ Listo. Revisa los datos antes de registrar.';
+      }catch(err){
+        console.error(err);
+        ocrMsg.style.color='var(--rust)'; ocrMsg.textContent='No se pudo leer la factura (revisa tu llave). Completa los datos a mano.';
+      }
+    });
+
+    document.getElementById('btnConfigurarLlave').addEventListener('click', function(){
+      var actual = getGeminiKey();
+      var entered = prompt('Pega tu llave de Gemini (solo se guarda en este navegador, nunca en GitHub):', actual);
+      if (entered!==null) setGeminiKey(entered.trim());
     });
 
     ['filterText','filterActividadSearch','filterMes','filterResponsable'].forEach(function(id){
@@ -804,6 +954,43 @@ tr.current-row td{background:#FFF6E4;}
       x.mes = sel.value;
       await storageSet(STORAGE_KEYS.expenses, state.expenses);
       renderAll();
+    });
+
+    ['segFilterText','segFilterEstado'].forEach(function(id){
+      document.getElementById(id).addEventListener('input', renderSeguimientoTable);
+      document.getElementById(id).addEventListener('change', renderSeguimientoTable);
+    });
+
+    document.getElementById('seguimientoTable').addEventListener('change', async function(e){
+      var el = e.target.closest('[data-action]');
+      if (!el) return;
+      var x = state.expenses.find(function(x2){return x2.id===el.dataset.id;});
+      if (!x) return;
+      var action = el.dataset.action;
+      if (action==='seg-factura') x.numeroFactura = el.value.trim();
+      else if (action==='seg-oc') x.ordenCompra = el.value.trim();
+      else if (action==='seg-recepcion') x.numeroRecepcion = el.value.trim();
+      else if (action==='seg-aprobado') x.aprobado = el.checked;
+      else if (action==='seg-cxp') x.cargadoCxP = el.checked;
+      else return;
+      await storageSet(STORAGE_KEYS.expenses, state.expenses);
+      renderAll();
+    });
+
+    document.getElementById('seguimientoTable').addEventListener('click', async function(e){
+      var btn = e.target.closest('button[data-action="seg-copiar"]');
+      if (!btn) return;
+      var x = state.expenses.find(function(x2){return x2.id===btn.dataset.id;});
+      if (!x) return;
+      var linea = [x.proveedor||'', x.ordenCompra||'', x.numeroFactura||'', x.numeroRecepcion||'', x.concepto||''].join('\t');
+      try{
+        await navigator.clipboard.writeText(linea);
+        var original = btn.textContent;
+        btn.textContent = '✓ Copiado';
+        setTimeout(function(){ btn.textContent = original; }, 1800);
+      }catch(err){
+        alert('No se pudo copiar automáticamente. Datos:\n'+linea.replace(/\t/g,' | '));
+      }
     });
 
     document.getElementById('oficialTotalForm').addEventListener('click', async function(e){
