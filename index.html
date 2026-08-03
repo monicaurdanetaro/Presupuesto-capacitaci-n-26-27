@@ -334,9 +334,19 @@ tr.current-row td{background:#FFF6E4;}
   <div class="section" id="section-oficial">
     <div class="panel">
       <h2>Cierre de mes con el panel de Finanzas</h2>
-      <div class="hint-spacer">Ingresa el total oficial de tu Excel para el "mes en edición" y marca qué gastos cargados ya aparecieron reflejados en él.</div>
+      <div class="hint-spacer">Ingresa el total oficial de tu Excel para el "mes en edición" y marca qué gastos cargados ya aparecieron reflejados en él. Una vez marcado un gasto como "en panel", queda bloqueado: ya no se puede editar ni eliminar.</div>
       <div id="oficialTotalForm" style="margin-bottom:20px;"></div>
       <div id="oficialChecklist"></div>
+      <div style="margin-top:22px; padding-top:18px; border-top:1px solid var(--line);">
+        <div style="font-size:12.5px; font-weight:700; color:var(--fd-navy); margin-bottom:8px;">➕ Agregar monto que está en el panel pero no vino de procura</div>
+        <div class="form-grid" style="grid-template-columns:1.4fr 1fr 1fr auto;">
+          <div class="field"><label>Descripción</label><input type="text" id="newManualDesc" placeholder="Ej. Ajuste de Finanzas"></div>
+          <div class="field"><label>Actividad</label><input type="text" id="newManualActividad" list="activityDatalist" placeholder="Buscar actividad…" autocomplete="off"></div>
+          <div class="field"><label>Monto (USD)</label><input type="number" id="newManualMonto" step="0.01" min="0" placeholder="0.00"></div>
+          <div class="field" style="display:flex; align-items:flex-end;"><button class="btn primary" id="btnAddManual" style="width:100%;">Agregar</button></div>
+        </div>
+        <span id="manualMsg" style="font-size:12.5px; color:var(--fd-teal); font-weight:700;"></span>
+      </div>
     </div>
   </div>
 
@@ -709,7 +719,7 @@ tr.current-row td{background:#FFF6E4;}
     var actFilter = actSearch ? (findActivityByDisplay(actSearch)||{id:'__none__'}).id : '';
     var mesFilter=document.getElementById('filterMes').value;
     var respFilter=document.getElementById('filterResponsable').value;
-    var list = state.expenses.filter(function(x){
+    var list = state.expenses.filter(function(x){ return !x.manual; }).filter(function(x){
       if (actFilter && x.actividadId!==actFilter) return false;
       if (mesFilter && x.mes!==mesFilter) return false;
       if (respFilter && x.cargadoPor!==respFilter) return false;
@@ -721,35 +731,35 @@ tr.current-row td{background:#FFF6E4;}
     }).sort(function(a,b){return (b.fechaCarga||'').localeCompare(a.fechaCarga||'');});
 
     var body = list.map(function(x){
-      var panelPill = x.enPanel ? '<span class="pill ok">Sí</span>' : '<span class="pill warn">No</span>';
+      var locked = !!x.enPanel;
       var mesOptions = FISCAL_MONTHS.slice();
       var fueraDeAnio = mesOptions.indexOf(x.mes)===-1;
       if (fueraDeAnio && x.mes) mesOptions = [x.mes].concat(mesOptions);
-      var mesCell = '<select data-action="expense-mes" data-id="'+x.id+'" style="padding:4px 6px; border:1px solid '+(fueraDeAnio?'var(--rust)':'var(--line-strong)')+'; border-radius:5px; font-size:11.5px; '+(fueraDeAnio?'color:var(--rust); font-weight:700;':'')+'">'
+      var mesCell = '<select data-action="expense-mes" data-id="'+x.id+'" '+(locked?'disabled':'')+' style="padding:4px 6px; border:1px solid '+(fueraDeAnio?'var(--rust)':'var(--line-strong)')+'; border-radius:5px; font-size:11.5px; '+(fueraDeAnio?'color:var(--rust); font-weight:700;':'')+'">'
           + mesOptions.map(function(m){
               var lbl = FISCAL_MONTHS.indexOf(m)===-1 ? monthLabel(m)+' (fuera de año fiscal)' : monthLabel(m);
               return '<option value="'+m+'" '+(m===x.mes?'selected':'')+'>'+escapeHtml(lbl)+'</option>';
             }).join('')
           + '</select>';
-      var actions = '<button class="btn small ghost" data-action="toggle-panel" data-id="'+x.id+'">'+(x.enPanel?'Desmarcar':'Marcar en panel')+'</button> '
-        + '<button class="btn small ghost" data-action="edit-expense" data-id="'+x.id+'">Editar monto</button> '
-        + '<button class="btn small danger" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>';
+      var montoCell = '<input type="number" step="0.01" data-action="expense-monto" data-id="'+x.id+'" value="'+x.monto+'" '+(locked?'disabled':'')+' style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;">';
+      var actions = locked
+        ? '<span class="pill ok" title="Ya está reflejado en el panel oficial, no se puede editar ni eliminar.">🔒 En panel</span>'
+        : '<button class="btn small danger" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>';
       return '<tr>'
         + '<td class="mono">'+escapeHtml(x.solicitud)+'</td>'
         + '<td>'+escapeHtml(x.proveedor)+'</td>'
         + '<td class="mono">'+escapeHtml(x.numeroFactura||'—')+'</td>'
         + '<td>'+escapeHtml(x.concepto)+'</td>'
         + '<td>'+escapeHtml(activityName(x.actividadId))+'</td>'
-        + '<td class="num">'+fmtUSD(x.monto)+'</td>'
+        + '<td class="num">'+montoCell+'</td>'
         + '<td>'+mesCell+'</td>'
         + '<td class="mono">'+escapeHtml(x.fechaCarga)+'</td>'
         + '<td><span class="pill info">'+escapeHtml(x.cargadoPor||'—')+'</span></td>'
-        + '<td>'+panelPill+'</td>'
         + '<td>'+actions+'</td></tr>';
     }).join('');
 
     document.getElementById('expensesTable').innerHTML = list.length
-      ? '<table class="std"><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Concepto</th><th>Actividad</th><th class="num">Monto</th><th>Mes</th><th>Fecha carga</th><th>Responsable</th><th>En panel</th><th></th></tr>'+body+'</table>'
+      ? '<table class="std"><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Concepto</th><th>Actividad</th><th class="num">Monto</th><th>Mes</th><th>Fecha carga</th><th>Responsable</th><th></th></tr>'+body+'</table>'
       : '<div class="empty-state">No hay gastos que coincidan con el filtro.</div>';
   }
 
@@ -773,7 +783,7 @@ tr.current-row td{background:#FFF6E4;}
     var estadoFilter = document.getElementById('segFilterEstado').value;
     var respFilter = document.getElementById('segFilterResponsable').value;
     var mesFilter = document.getElementById('segFilterMes').value;
-    var list = state.expenses.filter(function(x){
+    var list = state.expenses.filter(function(x){ return !x.manual; }).filter(function(x){
       var estado = computeEstadoTramite(x);
       if (estadoFilter && estado.label!==estadoFilter) return false;
       if (respFilter && x.cargadoPor!==respFilter) return false;
@@ -787,15 +797,17 @@ tr.current-row td{background:#FFF6E4;}
 
     var body = list.map(function(x){
       var estado = computeEstadoTramite(x);
+      var locked = !!x.enPanel;
+      var dis = locked ? 'disabled' : '';
       return '<tr>'
         + '<td class="mono">'+escapeHtml(x.solicitud)+'</td>'
         + '<td>'+escapeHtml(x.proveedor)+'</td>'
-        + '<td><input type="text" data-action="seg-factura" data-id="'+x.id+'" value="'+escapeHtml(x.numeroFactura||'')+'" style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
-        + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-aprobado" data-id="'+x.id+'" '+(x.aprobado?'checked':'')+'></div></td>'
-        + '<td><input type="text" data-action="seg-oc" data-id="'+x.id+'" value="'+escapeHtml(x.ordenCompra||'')+'" placeholder="Sin OC" style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
-        + '<td><input type="text" data-action="seg-recepcion" data-id="'+x.id+'" value="'+escapeHtml(x.numeroRecepcion||'')+'" placeholder="Sin recibir" style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
-        + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-cxp" data-id="'+x.id+'" '+(x.cargadoCxP?'checked':'')+' title="Cargado en el Excel de CxP y factura adjunta en Drive"></div></td>'
-        + '<td><span class="pill '+estado.cls+'">'+escapeHtml(estado.label)+'</span></td>'
+        + '<td><input type="text" data-action="seg-factura" data-id="'+x.id+'" value="'+escapeHtml(x.numeroFactura||'')+'" '+dis+' style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
+        + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-aprobado" data-id="'+x.id+'" '+(x.aprobado?'checked':'')+' '+dis+'></div></td>'
+        + '<td><input type="text" data-action="seg-oc" data-id="'+x.id+'" value="'+escapeHtml(x.ordenCompra||'')+'" placeholder="Sin OC" '+dis+' style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
+        + '<td><input type="text" data-action="seg-recepcion" data-id="'+x.id+'" value="'+escapeHtml(x.numeroRecepcion||'')+'" placeholder="Sin recibir" '+dis+' style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px;"></td>'
+        + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-cxp" data-id="'+x.id+'" '+(x.cargadoCxP?'checked':'')+' '+dis+' title="Cargado en el Excel de CxP y factura adjunta en Drive"></div></td>'
+        + '<td>'+(locked?'<span class="pill ok" title="Ya está en panel oficial, no editable">🔒 '+escapeHtml(estado.label)+'</span>':'<span class="pill '+estado.cls+'">'+escapeHtml(estado.label)+'</span>')+'</td>'
         + '<td><button class="btn small primary" data-action="seg-copiar" data-id="'+x.id+'">📋 Copiar</button></td></tr>';
     }).join('');
 
@@ -813,22 +825,35 @@ tr.current-row td{background:#FFF6E4;}
       + '<div class="field" style="display:flex; align-items:flex-end;"><button class="btn primary" id="btnSaveOficialTotal" style="width:100%;">Guardar total</button></div>'
       + '</div><span id="oficialMsg" style="font-size:12.5px; color:var(--fd-teal); font-weight:700;"></span>';
 
-    var list = expensesForMonth(state.currentMonth).sort(function(a,b){return (b.fechaCarga||'').localeCompare(a.fechaCarga||'');});
+    var list = expensesForMonth(state.currentMonth).sort(function(a,b){return Number(b.monto||0)-Number(a.monto||0);});
     var body = list.map(function(x){
       var checkCell = '<div class="checkbox-cell"><input type="checkbox" data-action="checklist-toggle" data-id="'+x.id+'" '+(x.enPanel?'checked':'')+'></div>';
+      var solicitudCell = x.manual ? '<span class="pill info">Manual</span>' : escapeHtml(x.solicitud);
+      var proveedorCell = x.manual ? escapeHtml(x.concepto) : escapeHtml(x.proveedor);
+      var borrar = x.manual ? '<button class="btn small danger" data-action="del-manual" data-id="'+x.id+'">Eliminar</button>' : '';
       return '<tr>'
-        + '<td class="mono">'+escapeHtml(x.solicitud)+'</td>'
-        + '<td>'+escapeHtml(x.proveedor)+'</td>'
+        + '<td class="mono">'+solicitudCell+'</td>'
+        + '<td>'+proveedorCell+'</td>'
         + '<td>'+escapeHtml(activityName(x.actividadId))+'</td>'
-        + '<td><span class="pill info">'+escapeHtml(x.cargadoPor||'—')+'</span></td>'
+        + '<td>'+(x.cargadoPor?'<span class="pill info">'+escapeHtml(x.cargadoPor)+'</span>':'—')+'</td>'
         + '<td class="num">'+fmtUSD(x.monto)+'</td>'
-        + '<td style="text-align:center;">'+checkCell+'</td></tr>';
+        + '<td style="text-align:center;">'+checkCell+'</td>'
+        + '<td>'+borrar+'</td></tr>';
     }).join('');
 
+    var marcadoSum = list.filter(function(x){return x.enPanel;}).reduce(function(a,x){return a+Number(x.monto||0);},0);
+    var diferencia = g.oficial===null ? null : (g.oficial - marcadoSum);
+    var diffHtml = diferencia===null
+      ? '<span style="color:var(--ink-soft);">Ingresa el total oficial arriba para comparar.</span>'
+      : (Math.abs(diferencia)<0.01
+          ? '<span style="color:var(--fd-teal); font-weight:700;">✓ Coincide con el total oficial.</span>'
+          : '<span style="color:var(--rust); font-weight:700;">⚠ Diferencia de '+fmtUSD(diferencia)+' vs. el total oficial — revisa qué falta marcar o agregar.</span>');
+
     document.getElementById('oficialChecklist').innerHTML = list.length
-      ? '<h3 style="font-size:12.5px; margin-bottom:10px; color:var(--ink-soft); font-family:Arial; font-weight:700; text-transform:uppercase; letter-spacing:.03em;">Gastos cargados en '+escapeHtml(monthLabel(state.currentMonth))+' — marca los que ya viste en el Excel oficial</h3>'
-        + '<table class="std"><tr><th>Solicitud</th><th>Proveedor</th><th>Actividad</th><th>Responsable</th><th class="num">Monto</th><th>¿En panel?</th></tr>'+body+'</table>'
-        + '<div style="margin-top:10px; font-size:12.5px; color:var(--ink-soft);">Marcados: <strong class="mono">'+fmtUSD(list.filter(function(x){return x.enPanel;}).reduce(function(a,x){return a+Number(x.monto||0);},0))+'</strong> · Pendientes (procura): <strong class="mono">'+fmtUSD(g.procura)+'</strong></div>'
+      ? '<h3 style="font-size:12.5px; margin-bottom:10px; color:var(--ink-soft); font-family:Arial; font-weight:700; text-transform:uppercase; letter-spacing:.03em;">Gastos en '+escapeHtml(monthLabel(state.currentMonth))+' — marca los que ya viste en el Excel oficial (ordenados de mayor a menor monto)</h3>'
+        + '<table class="std"><tr><th>Solicitud</th><th>Proveedor / Descripción</th><th>Actividad</th><th>Responsable</th><th class="num">Monto</th><th>¿En panel?</th><th></th></tr>'+body+'</table>'
+        + '<div style="margin-top:10px; font-size:12.5px; color:var(--ink-soft);">Marcados: <strong class="mono">'+fmtUSD(marcadoSum)+'</strong> · Pendientes (procura): <strong class="mono">'+fmtUSD(g.procura)+'</strong></div>'
+        + '<div style="margin-top:6px; font-size:12.5px;">'+diffHtml+'</div>'
       : '<div class="empty-state">No hay gastos cargados este mes todavía.</div>';
   }
 
@@ -950,38 +975,34 @@ tr.current-row td{background:#FFF6E4;}
     document.getElementById('filterActividadNombre').addEventListener('input', renderActividades);
 
     document.getElementById('expensesTable').addEventListener('click', async function(e){
-      var btn = e.target.closest('button[data-action]');
+      var btn = e.target.closest('button[data-action="del-expense"]');
       if (!btn) return;
       var id = btn.dataset.id;
-      if (btn.dataset.action==='del-expense'){
-        if (!confirm('¿Eliminar este gasto? Esta acción no se puede deshacer.')) return;
-        state.expenses = state.expenses.filter(function(x){return x.id!==id;});
-        await storageSet(STORAGE_KEYS.expenses, state.expenses); renderAll();
-      } else if (btn.dataset.action==='edit-expense'){
-        var x = state.expenses.find(function(e2){return e2.id===id;});
-        if (!x) return;
-        var nuevoMonto = prompt('Nuevo monto (USD) para "'+x.concepto+'":', x.monto);
-        if (nuevoMonto===null) return;
-        var val = parseFloat(nuevoMonto);
-        if (isNaN(val)){ alert('Monto inválido.'); return; }
-        x.monto = val;
-        await storageSet(STORAGE_KEYS.expenses, state.expenses); renderAll();
-      } else if (btn.dataset.action==='toggle-panel'){
-        var y = state.expenses.find(function(e2){return e2.id===id;});
-        if (!y) return;
-        y.enPanel = !y.enPanel;
-        await storageSet(STORAGE_KEYS.expenses, state.expenses); renderAll();
-      }
+      var x = state.expenses.find(function(e2){return e2.id===id;});
+      if (x && x.enPanel){ alert('Este gasto ya está en el panel oficial y no se puede eliminar.'); return; }
+      if (!confirm('¿Eliminar este gasto? Esta acción no se puede deshacer.')) return;
+      state.expenses = state.expenses.filter(function(x2){return x2.id!==id;});
+      await storageSet(STORAGE_KEYS.expenses, state.expenses); renderAll();
     });
 
     document.getElementById('expensesTable').addEventListener('change', async function(e){
       var sel = e.target.closest('select[data-action="expense-mes"]');
-      if (!sel) return;
-      var x = state.expenses.find(function(e2){return e2.id===sel.dataset.id;});
-      if (!x) return;
-      x.mes = sel.value;
-      await storageSet(STORAGE_KEYS.expenses, state.expenses);
-      renderAll();
+      var montoInput = e.target.closest('input[data-action="expense-monto"]');
+      if (sel){
+        var x = state.expenses.find(function(e2){return e2.id===sel.dataset.id;});
+        if (!x || x.enPanel) return;
+        x.mes = sel.value;
+        await storageSet(STORAGE_KEYS.expenses, state.expenses);
+        renderAll();
+      } else if (montoInput){
+        var y = state.expenses.find(function(e2){return e2.id===montoInput.dataset.id;});
+        if (!y || y.enPanel) return;
+        var val = parseFloat(montoInput.value);
+        if (isNaN(val) || val<0){ alert('Monto inválido.'); renderAll(); return; }
+        y.monto = val;
+        await storageSet(STORAGE_KEYS.expenses, state.expenses);
+        renderAll();
+      }
     });
 
     ['segFilterText','segFilterEstado','segFilterResponsable','segFilterMes'].forEach(function(id){
@@ -993,7 +1014,7 @@ tr.current-row td{background:#FFF6E4;}
       var el = e.target.closest('[data-action]');
       if (!el) return;
       var x = state.expenses.find(function(x2){return x2.id===el.dataset.id;});
-      if (!x) return;
+      if (!x || x.enPanel) return;
       var action = el.dataset.action;
       if (action==='seg-factura') x.numeroFactura = el.value.trim();
       else if (action==='seg-oc') x.ordenCompra = el.value.trim();
@@ -1041,6 +1062,44 @@ tr.current-row td{background:#FFF6E4;}
       x.enPanel = cb.checked;
       await storageSet(STORAGE_KEYS.expenses, state.expenses);
       renderAll();
+    });
+
+    document.getElementById('oficialChecklist').addEventListener('click', async function(e){
+      var btn = e.target.closest('button[data-action="del-manual"]');
+      if (!btn) return;
+      if (!confirm('¿Eliminar este monto agregado manualmente?')) return;
+      state.expenses = state.expenses.filter(function(x){return x.id!==btn.dataset.id;});
+      await storageSet(STORAGE_KEYS.expenses, state.expenses);
+      renderAll();
+    });
+
+    document.getElementById('btnAddManual').addEventListener('click', async function(){
+      var desc = document.getElementById('newManualDesc').value.trim();
+      var act = findActivityByDisplay(document.getElementById('newManualActividad').value);
+      var monto = parseFloat(document.getElementById('newManualMonto').value);
+      var msg = document.getElementById('manualMsg');
+      if (!desc){ msg.style.color='var(--rust)'; msg.textContent='Escribe una descripción.'; return; }
+      if (!act){ msg.style.color='var(--rust)'; msg.textContent='Selecciona una actividad válida de la lista.'; return; }
+      if (isNaN(monto) || monto<=0){ msg.style.color='var(--rust)'; msg.textContent='Ingresa un monto válido.'; return; }
+      var entry = {
+        id: uid(), manual:true, solicitud:'', proveedor:'', numeroFactura:'',
+        actividadId: act.id, concepto: desc, monto: monto, mes: state.currentMonth,
+        cargadoPor:'', fechaCarga: todayISO(), enPanel:true,
+        aprobado:false, ordenCompra:'', numeroRecepcion:'', cargadoCxP:false
+      };
+      var newList = state.expenses.concat([entry]);
+      var ok = await storageSet(STORAGE_KEYS.expenses, newList);
+      if (ok){
+        state.expenses = newList;
+        msg.style.color='var(--fd-teal)'; msg.textContent='✓ Agregado al panel.';
+        document.getElementById('newManualDesc').value='';
+        document.getElementById('newManualActividad').value='';
+        document.getElementById('newManualMonto').value='';
+      } else {
+        msg.style.color='var(--rust)'; msg.textContent='No se pudo guardar. Intenta de nuevo.';
+      }
+      renderAll();
+      setTimeout(function(){ if(document.getElementById('manualMsg')) document.getElementById('manualMsg').textContent=''; }, 5000);
     });
 
 
