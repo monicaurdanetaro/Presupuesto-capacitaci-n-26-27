@@ -232,7 +232,10 @@ tr.current-row td{background:#FFF6E4;}
       <h2>Gasto por actividad — año fiscal completo</h2>
       <div class="hint-spacer">PPTO planificado: el número adoptado como plan. Activa "Editar" arriba de la tabla para modificar cualquier dato o agregar actividades. Filas en rojo: disponible negativo.</div>
       <div class="toolbar" style="justify-content:space-between;">
-        <select id="filterCategoria"><option value="">Todos los proyectos</option></select>
+        <div class="toolbar" style="margin-bottom:0;">
+          <input type="text" id="filterActividadNombre" placeholder="Buscar actividad por nombre…">
+          <select id="filterCategoria"><option value="">Todos los proyectos</option></select>
+        </div>
         <button class="btn ghost" id="btnToggleEditActividades">✏️ Editar</button>
       </div>
       <div id="actividadesTable"></div>
@@ -613,6 +616,7 @@ tr.current-row td{background:#FFF6E4;}
   function renderActividades(){
     document.getElementById('btnToggleEditActividades').textContent = state.editActividades ? 'Cancelar edición' : '✏️ Editar';
     var catFilter = document.getElementById('filterCategoria').value;
+    var nombreFilter = (document.getElementById('filterActividadNombre').value||'').toLowerCase().trim();
     var editing = state.editActividades;
     var allActs = editing ? (state.settings.activities||[]).slice() : activeActivities();
     var rows = allActs
@@ -621,6 +625,7 @@ tr.current-row td{background:#FFF6E4;}
         return r || {actividad:a, pptoPlanificado:Number(a.pptoPlanificado)||0, gastado:0, disponible:Number(a.pptoPlanificado)||0, pct:0};
       })
       .filter(function(r){ if (!catFilter) return true; return (r.actividad.categoria||'Sin categoría')===catFilter; })
+      .filter(function(r){ if (!nombreFilter) return true; return r.actividad.nombre.toLowerCase().indexOf(nombreFilter)!==-1; })
       .sort(function(a,b){return (a.actividad.categoria||'').localeCompare(b.actividad.categoria||'') || a.actividad.nombre.localeCompare(b.actividad.nombre);});
 
     var body = rows.map(function(r){
@@ -920,6 +925,7 @@ tr.current-row td{background:#FFF6E4;}
       document.getElementById(id).addEventListener('change', renderExpensesTable);
     });
     document.getElementById('filterCategoria').addEventListener('change', renderActividades);
+    document.getElementById('filterActividadNombre').addEventListener('input', renderActividades);
 
     document.getElementById('expensesTable').addEventListener('click', async function(e){
       var btn = e.target.closest('button[data-action]');
