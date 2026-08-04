@@ -150,6 +150,7 @@ tr.current-row td{background:#FFF6E4;}
 .search-wrap .ico{position:absolute; left:9px; top:50%; transform:translateY(-50%); font-size:13px; color:var(--ink-soft); pointer-events:none;}
 .checkbox-cell{display:flex; align-items:center; justify-content:center;}
 .checkbox-cell input{width:18px; height:18px; accent-color:var(--fd-blue);}
+.ac-option:hover{background:var(--fd-navy-pale);}
 
 .toolbar{display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:center;}
 .toolbar input, .toolbar select{padding:7px 10px; border:1px solid var(--line-strong); border-radius:6px; font-size:12.5px;}
@@ -267,7 +268,7 @@ tr.current-row td{background:#FFF6E4;}
           <div class="field"><label>Nº de factura</label><input type="text" id="f_factura" placeholder="Ej. FAC-00981 (si aún no la tienes, déjalo vacío)"></div>
           <div class="field">
             <label>Actividad <span class="req">*</span></label>
-            <input type="text" id="f_actividad_search" list="activityDatalist" required placeholder="Buscar actividad por nombre…" autocomplete="off">
+            <input type="text" id="f_actividad_search" required placeholder="Buscar actividad por nombre…" autocomplete="off">
           </div>
           <div class="field"><label>Concepto <span class="req">*</span></label><input type="text" id="f_concepto" required placeholder="Ej. Certificación equipo ventas"></div>
           <div class="field"><label>Monto (USD) <span class="req">*</span></label><input type="number" id="f_monto" required step="0.01" min="0" placeholder="0.00"></div>
@@ -297,7 +298,7 @@ tr.current-row td{background:#FFF6E4;}
       <div class="hint-spacer">Vista de todo el equipo. Cualquiera puede corregir monto, mes, o marcar si ya se vio en el panel oficial. Para el trámite completo (OC, recepción, aprobación) ve a la pestaña <strong>Seguimiento</strong>.</div>
       <div class="toolbar">
         <input type="text" id="filterText" placeholder="Buscar proveedor, concepto o solicitud…">
-        <input type="text" id="filterActividadSearch" list="activityDatalist" placeholder="Filtrar por actividad…" autocomplete="off">
+        <div style="position:relative; display:inline-block;"><input type="text" id="filterActividadSearch" placeholder="Filtrar por actividad…" autocomplete="off"></div>
         <select id="filterMes"><option value="">Todos los meses</option></select>
         <select id="filterResponsable">
           <option value="">Todos los responsables</option>
@@ -341,7 +342,7 @@ tr.current-row td{background:#FFF6E4;}
         <div style="font-size:12.5px; font-weight:700; color:var(--fd-navy); margin-bottom:8px;">➕ Agregar monto que está en el panel pero no vino de procura</div>
         <div class="form-grid" style="grid-template-columns:1.4fr 1fr 1fr auto;">
           <div class="field"><label>Descripción</label><input type="text" id="newManualDesc" placeholder="Ej. Ajuste de Finanzas"></div>
-          <div class="field"><label>Actividad</label><input type="text" id="newManualActividad" list="activityDatalist" placeholder="Buscar actividad…" autocomplete="off"></div>
+          <div class="field"><label>Actividad</label><input type="text" id="newManualActividad" placeholder="Buscar actividad…" autocomplete="off"></div>
           <div class="field"><label>Monto (USD)</label><input type="number" id="newManualMonto" step="0.01" min="0" placeholder="0.00"></div>
           <div class="field" style="display:flex; align-items:flex-end;"><button class="btn primary" id="btnAddManual" style="width:100%;">Agregar</button></div>
         </div>
@@ -704,6 +705,39 @@ tr.current-row td{background:#FFF6E4;}
     if (!t) return null;
     return (state.settings.activities||[]).find(function(a){ return activityDisplay(a).toLowerCase()===t; }) || null;
   }
+
+  function wireActivitySearchInput(inputId){
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    var wrap = input.parentNode;
+    if (getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+    var dd = document.createElement('div');
+    dd.style.cssText = 'display:none; position:absolute; left:0; right:0; top:100%; z-index:30; background:var(--raised); border:1px solid var(--line-strong); border-radius:6px; max-height:220px; overflow-y:auto; box-shadow:0 6px 16px rgba(0,20,60,.12); margin-top:2px;';
+    wrap.appendChild(dd);
+
+    function showOptions(){
+      var opts = activeActivities().slice().sort(function(a,b){return (a.categoria||'').localeCompare(b.categoria||'') || a.nombre.localeCompare(b.nombre);});
+      var f = input.value.trim().toLowerCase();
+      var matches = opts.filter(function(a){ return activityDisplay(a).toLowerCase().indexOf(f)!==-1; }).slice(0,60);
+      if (!matches.length){ dd.style.display='none'; dd.innerHTML=''; return; }
+      dd.innerHTML = matches.map(function(a){
+        return '<div class="ac-option" data-display="'+escapeHtml(activityDisplay(a))+'" style="padding:8px 11px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--line);">'+escapeHtml(activityDisplay(a))+'</div>';
+      }).join('');
+      dd.style.display='block';
+    }
+
+    input.addEventListener('focus', showOptions);
+    input.addEventListener('input', showOptions);
+    input.addEventListener('blur', function(){ setTimeout(function(){ dd.style.display='none'; }, 150); });
+    dd.addEventListener('mousedown', function(e){
+      var opt = e.target.closest('.ac-option');
+      if (!opt) return;
+      e.preventDefault();
+      input.value = opt.dataset.display;
+      dd.style.display = 'none';
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+  }
   function renderExpenseForm(){
     document.getElementById('f_fecha_display').textContent = todayISO()+' (automática)';
   }
@@ -827,16 +861,19 @@ tr.current-row td{background:#FFF6E4;}
 
     var list = expensesForMonth(state.currentMonth).sort(function(a,b){return Number(b.monto||0)-Number(a.monto||0);});
     var body = list.map(function(x){
-      var checkCell = '<div class="checkbox-cell"><input type="checkbox" data-action="checklist-toggle" data-id="'+x.id+'" '+(x.enPanel?'checked':'')+'></div>';
+      var locked = !!x.enPanel;
+      var checkCell = '<div class="checkbox-cell"><input type="checkbox" data-action="checklist-toggle" data-id="'+x.id+'" '+(locked?'checked':'')+'></div>';
       var solicitudCell = x.manual ? '<span class="pill info">Manual</span>' : escapeHtml(x.solicitud);
       var proveedorCell = x.manual ? escapeHtml(x.concepto) : escapeHtml(x.proveedor);
-      var borrar = x.manual ? '<button class="btn small danger" data-action="del-manual" data-id="'+x.id+'">Eliminar</button>' : '';
+      var montoCell = '<input type="number" step="0.01" data-action="oficial-monto" data-id="'+x.id+'" value="'+x.monto+'" '+(locked?'disabled':'')+' style="width:100px; padding:5px 7px; border:1px solid var(--line-strong); border-radius:5px; text-align:right;">';
+      var borrar = x.manual ? '<button class="btn small danger" data-action="del-manual" data-id="'+x.id+'" '+(locked&&x.manual?'':'')+'>Eliminar</button>' : '';
       return '<tr>'
         + '<td class="mono">'+solicitudCell+'</td>'
+        + '<td class="mono">'+escapeHtml(x.ordenCompra||'—')+'</td>'
         + '<td>'+proveedorCell+'</td>'
         + '<td>'+escapeHtml(activityName(x.actividadId))+'</td>'
         + '<td>'+(x.cargadoPor?'<span class="pill info">'+escapeHtml(x.cargadoPor)+'</span>':'—')+'</td>'
-        + '<td class="num">'+fmtUSD(x.monto)+'</td>'
+        + '<td class="num">'+montoCell+'</td>'
         + '<td style="text-align:center;">'+checkCell+'</td>'
         + '<td>'+borrar+'</td></tr>';
     }).join('');
@@ -851,7 +888,7 @@ tr.current-row td{background:#FFF6E4;}
 
     document.getElementById('oficialChecklist').innerHTML = list.length
       ? '<h3 style="font-size:12.5px; margin-bottom:10px; color:var(--ink-soft); font-family:Arial; font-weight:700; text-transform:uppercase; letter-spacing:.03em;">Gastos en '+escapeHtml(monthLabel(state.currentMonth))+' — marca los que ya viste en el Excel oficial (ordenados de mayor a menor monto)</h3>'
-        + '<table class="std"><tr><th>Solicitud</th><th>Proveedor / Descripción</th><th>Actividad</th><th>Responsable</th><th class="num">Monto</th><th>¿En panel?</th><th></th></tr>'+body+'</table>'
+        + '<table class="std"><tr><th>Solicitud</th><th>Orden de compra</th><th>Proveedor / Descripción</th><th>Actividad</th><th>Responsable</th><th class="num">Monto</th><th>¿En panel?</th><th></th></tr>'+body+'</table>'
         + '<div style="margin-top:10px; font-size:12.5px; color:var(--ink-soft);">Marcados: <strong class="mono">'+fmtUSD(marcadoSum)+'</strong> · Pendientes (procura): <strong class="mono">'+fmtUSD(g.procura)+'</strong></div>'
         + '<div style="margin-top:6px; font-size:12.5px;">'+diffHtml+'</div>'
       : '<div class="empty-state">No hay gastos cargados este mes todavía.</div>';
@@ -877,6 +914,10 @@ tr.current-row td{background:#FFF6E4;}
 
   // ---------------- EVENTS ----------------
   function wireStaticEvents(){
+    wireActivitySearchInput('f_actividad_search');
+    wireActivitySearchInput('filterActividadSearch');
+    wireActivitySearchInput('newManualActividad');
+
     document.querySelectorAll('.tab').forEach(function(tab){
       tab.addEventListener('click', function(){
         document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
@@ -1056,12 +1097,22 @@ tr.current-row td{background:#FFF6E4;}
 
     document.getElementById('oficialChecklist').addEventListener('change', async function(e){
       var cb = e.target.closest('input[data-action="checklist-toggle"]');
-      if (!cb) return;
-      var x = state.expenses.find(function(e2){return e2.id===cb.dataset.id;});
-      if (!x) return;
-      x.enPanel = cb.checked;
-      await storageSet(STORAGE_KEYS.expenses, state.expenses);
-      renderAll();
+      var montoInput = e.target.closest('input[data-action="oficial-monto"]');
+      if (cb){
+        var x = state.expenses.find(function(e2){return e2.id===cb.dataset.id;});
+        if (!x) return;
+        x.enPanel = cb.checked;
+        await storageSet(STORAGE_KEYS.expenses, state.expenses);
+        renderAll();
+      } else if (montoInput){
+        var y = state.expenses.find(function(e2){return e2.id===montoInput.dataset.id;});
+        if (!y || y.enPanel) return;
+        var val = parseFloat(montoInput.value);
+        if (isNaN(val) || val<0){ alert('Monto inválido.'); renderAll(); return; }
+        y.monto = val;
+        await storageSet(STORAGE_KEYS.expenses, state.expenses);
+        renderAll();
+      }
     });
 
     document.getElementById('oficialChecklist').addEventListener('click', async function(e){
