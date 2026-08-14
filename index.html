@@ -246,7 +246,7 @@ async function extractInvoiceData(base64, mimeType){
     model: 'gemini-3.6-flash',
     input: [
       filePart,
-      { type:'text', text:'Analiza este documento y extrae 4 datos. Sigue estas reglas con mucho cuidado:\n\n1) "tipoDocumento": identifica si el documento es una FACTURA real (documento fiscal/tributario ya emitido, suele decir "Factura", "Invoice", "Factura de Venta" y tener un número de control fiscal) o si es una COTIZACIÓN / PRESUPUESTO / "Quote" / "Proforma" (una propuesta de precio, todavía no es una factura formal). Responde exactamente "factura" o "cotizacion".\n\n2) "numeroFactura": SOLO si tipoDocumento es "factura", extrae su número. Si tipoDocumento es "cotizacion", este campo debe ser null SIEMPRE (un número de cotización o presupuesto NO es un número de factura y nunca se debe usar como tal).\n\n3) "proveedor": el nombre del proveedor o empresa que emite el documento (el vendedor, no el cliente que lo recibe).\n\n4) "monto": el SUBTOTAL antes de impuestos (el monto SIN IVA / sin impuesto al valor agregado), nunca el total con impuestos incluido. Busca específicamente un renglón como "Subtotal", "Base imponible", "Monto neto" o "Base gravable". Si el documento solo muestra el total con IVA y el monto de IVA por separado, calcula el subtotal restando el IVA del total. Da el número puro en dólares (USD), sin símbolo de moneda ni separador de miles, con punto como separador decimal (ej. 1234.56).\n\nResponde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"tipoDocumento":"factura","numeroFactura":"...","proveedor":"...","monto":123.45}. Si no encuentras algún dato usa null.' }
+      { type:'text', text:'Analiza este documento y extrae 6 datos. Sigue estas reglas con mucho cuidado:\n\n1) "tipoDocumento": identifica si el documento es una FACTURA real (documento fiscal/tributario ya emitido, suele decir "Factura", "Invoice", "Factura de Venta" y tener un número de control fiscal) o si es una COTIZACIÓN / PRESUPUESTO / "Quote" / "Proforma" (una propuesta de precio, todavía no es una factura formal). Responde exactamente "factura" o "cotizacion".\n\n2) "numeroFactura": SOLO si tipoDocumento es "factura", extrae su número. Si tipoDocumento es "cotizacion", este campo debe ser null SIEMPRE (un número de cotización o presupuesto NO es un número de factura y nunca se debe usar como tal).\n\n3) "proveedor": el nombre del proveedor o empresa que emite el documento (el vendedor, no el cliente que lo recibe).\n\n4) "descripcion": una descripción breve (máximo una frase corta) de qué es lo que se está facturando — el servicio, producto o concepto principal. No copies la factura completa, solo el concepto central.\n\n5) "moneda": la moneda en la que está expresado el monto del documento. Responde exactamente "USD" si los montos están en dólares (símbolo $ o dice "USD" o "US$"), o "VES" si están en bolívares (símbolo "Bs", "Bs.", o dice "Bolívares" o "VES"). Si no es claro, usa "USD" por defecto.\n\n6) "monto": el SUBTOTAL antes de impuestos (el monto SIN IVA / sin impuesto al valor agregado), nunca el total con impuestos incluido, en la MISMA moneda que reportaste en "moneda" (NO conviertas nada tú mismo, solo reporta el número tal como aparece en el documento). Busca específicamente un renglón como "Subtotal", "Base imponible", "Monto neto" o "Base gravable". Si el documento solo muestra el total con IVA y el monto de IVA por separado, calcula el subtotal restando el IVA del total. Da el número puro, sin símbolo de moneda, sin separador de miles, con punto como separador decimal (ej. 1234.56).\n\nResponde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"tipoDocumento":"factura","numeroFactura":"...","proveedor":"...","descripcion":"...","moneda":"USD","monto":123.45}. Si no encuentras algún dato usa null.' }
     ]
   };
   var res = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)});
@@ -265,6 +265,22 @@ async function extractInvoiceData(base64, mimeType){
   var text = (modelStep.content||[]).filter(function(c){return c.type==='text';}).map(function(c){return c.text;}).join('');
   text = text.replace(/```json/gi,'').replace(/```/g,'').trim();
   return JSON.parse(text);
+}
+
+/* ================= TASA BCV DEL DÍA (Bs -> USD) ================= */
+async function obtenerTasaBCV(){
+  try{
+    var res = await fetch('https://bcv-exchange-rates.vercel.app/get_bcv_exchange_rates');
+    if(!res.ok) throw new Error('BCV API respondió '+res.status);
+    var data = await res.json();
+    if(data.error || !data.data || !data.data.dolar || !data.data.dolar.value) throw new Error('Respuesta inesperada de la API de tasa BCV');
+    var tasa = parseFloat(String(data.data.dolar.value).replace(',', '.'));
+    if(isNaN(tasa) || tasa<=0) throw new Error('Tasa BCV inválida');
+    return { tasa:tasa, fechaEfectiva:data.data.effective_date || null };
+  }catch(e){
+    console.error('No se pudo obtener la tasa BCV del día', e);
+    return null;
+  }
 }
 
 /* ================= ESTADO DEL TRÁMITE ================= */
@@ -852,23 +868,41 @@ function renderCargar(el){
       var result = await extractInvoiceData(base64, file.type);
       var esCotizacion = result.tipoDocumento==='cotizacion';
       var camposLeidos = [];
+      var avisoExtra = '';
       if(esCotizacion){
         $('#f_factura').value = '';
       } else if(result.numeroFactura){
         $('#f_factura').value = result.numeroFactura; camposLeidos.push('factura');
       }
       if(result.proveedor){ $('#f_proveedor').value = result.proveedor; camposLeidos.push('proveedor'); }
+      if(result.descripcion){ $('#f_concepto').value = result.descripcion; camposLeidos.push('descripción'); }
       if(result.monto!==null && result.monto!==undefined && result.monto!==''){
         var montoLimpio = parseFloat(String(result.monto).replace(/[^0-9.,-]/g,'').replace(/,/g,''));
-        if(!isNaN(montoLimpio)){ $('#f_monto').value = montoLimpio; camposLeidos.push('monto sin IVA'); }
+        if(!isNaN(montoLimpio)){
+          if(result.moneda==='VES'){
+            ocrMsg.style.color='var(--gray)'; ocrMsg.textContent='Detecté que está en bolívares. Consultando la tasa BCV del día…';
+            var bcv = await obtenerTasaBCV();
+            if(bcv){
+              var montoUSD = montoLimpio / bcv.tasa;
+              $('#f_monto').value = montoUSD.toFixed(2);
+              camposLeidos.push('monto sin IVA (convertido de Bs a USD)');
+              avisoExtra = ' Convertido de Bs '+montoLimpio.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+' a USD usando la tasa BCV de hoy ('+bcv.tasa.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:4})+' Bs/USD'+(bcv.fechaEfectiva?', '+bcv.fechaEfectiva:'')+'). Verifica el monto en USD antes de registrar.';
+            } else {
+              $('#f_monto').value = '';
+              avisoExtra = ' ⚠ El documento está en bolívares pero no pude consultar la tasa BCV del día (revisa tu conexión). Convierte el monto a USD manualmente antes de registrar.';
+            }
+          } else {
+            $('#f_monto').value = montoLimpio; camposLeidos.push('monto sin IVA');
+          }
+        }
       }
       if(esCotizacion){
         ocrMsg.style.color='var(--amber)';
-        ocrMsg.textContent = '⚠ Esto parece una cotización/presupuesto, no una factura — no llené el Nº de factura'+(camposLeidos.length?' (sí completé: '+camposLeidos.join(', ')+')':'')+'. Revisa bien antes de registrar.';
+        ocrMsg.textContent = '⚠ Esto parece una cotización/presupuesto, no una factura — no llené el Nº de factura'+(camposLeidos.length?' (sí completé: '+camposLeidos.join(', ')+')':'')+'. Revisa bien antes de registrar.'+avisoExtra;
       } else if(camposLeidos.length){
-        ocrMsg.style.color='var(--green)'; ocrMsg.textContent='✓ Se completó: '+camposLeidos.join(', ')+'. Revisa los datos antes de registrar.';
+        ocrMsg.style.color='var(--green)'; ocrMsg.textContent='✓ Se completó: '+camposLeidos.join(', ')+'.'+avisoExtra+' Revisa los datos antes de registrar.';
       } else {
-        ocrMsg.style.color='var(--amber)'; ocrMsg.textContent='La IA no pudo identificar ningún dato en este documento. Completa los datos a mano.';
+        ocrMsg.style.color='var(--amber)'; ocrMsg.textContent='La IA no pudo identificar ningún dato en este documento. Completa los datos a mano.'+avisoExtra;
       }
     }catch(err){
       console.error(err);
