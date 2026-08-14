@@ -983,8 +983,8 @@ function renderExpensesTable(){
       ? '<input type="text" class="inline-input text" style="width:150px;" data-action="expense-concepto" data-id="'+x.id+'" value="'+esc(x.concepto)+'" '+(locked?'disabled':'')+'>'
       : esc(x.concepto);
     var actions = locked
-      ? '<span class="tag green" title="Ya está reflejado en el panel oficial, no se puede editar ni eliminar.">🔒 En panel</span>'
-      : '<button class="btn btn-danger btn-sm" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>';
+      ? (editing ? '<span class="tag green" title="Ya está reflejado en el panel oficial, no se puede editar ni eliminar.">🔒 En panel</span>' : '')
+      : (editing ? '<button class="btn btn-danger btn-sm" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>' : '');
     var facturaCell = x.tieneFactura
       ? '<button class="btn btn-ghost btn-sm" data-action="descargar-factura" data-id="'+x.id+'">📎 Descargar</button>'
       : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm" data-action="adjuntar-factura" data-id="'+x.id+'">📎 Adjuntar</button>');
