@@ -246,7 +246,7 @@ async function extractInvoiceData(base64, mimeType){
     model: 'gemini-3.6-flash',
     input: [
       filePart,
-      { type:'text', text:'Extrae de esta factura estos 3 datos: 1) el número de factura, 2) el nombre del proveedor o empresa que emite la factura (el vendedor, no el cliente que la recibe), 3) el monto total en dólares (USD) como número puro, sin símbolo de moneda ni separador de miles, usando punto como separador decimal (ej. 1234.56). Responde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"numeroFactura":"...","proveedor":"...","monto":123.45}. Si no encuentras algún dato usa null.' }
+      { type:'text', text:'Analiza este documento y extrae 4 datos. Sigue estas reglas con mucho cuidado:\n\n1) "tipoDocumento": identifica si el documento es una FACTURA real (documento fiscal/tributario ya emitido, suele decir "Factura", "Invoice", "Factura de Venta" y tener un número de control fiscal) o si es una COTIZACIÓN / PRESUPUESTO / "Quote" / "Proforma" (una propuesta de precio, todavía no es una factura formal). Responde exactamente "factura" o "cotizacion".\n\n2) "numeroFactura": SOLO si tipoDocumento es "factura", extrae su número. Si tipoDocumento es "cotizacion", este campo debe ser null SIEMPRE (un número de cotización o presupuesto NO es un número de factura y nunca se debe usar como tal).\n\n3) "proveedor": el nombre del proveedor o empresa que emite el documento (el vendedor, no el cliente que lo recibe).\n\n4) "monto": el SUBTOTAL antes de impuestos (el monto SIN IVA / sin impuesto al valor agregado), nunca el total con impuestos incluido. Busca específicamente un renglón como "Subtotal", "Base imponible", "Monto neto" o "Base gravable". Si el documento solo muestra el total con IVA y el monto de IVA por separado, calcula el subtotal restando el IVA del total. Da el número puro en dólares (USD), sin símbolo de moneda ni separador de miles, con punto como separador decimal (ej. 1234.56).\n\nResponde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"tipoDocumento":"factura","numeroFactura":"...","proveedor":"...","monto":123.45}. Si no encuentras algún dato usa null.' }
     ]
   };
   var res = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)});
@@ -301,7 +301,7 @@ var firebaseConfig = {
   databaseURL: "https://presupuesto-capacitacion-default-rtdb.firebaseio.com",
   projectId: "presupuesto-capacitacion"
 };
-var KEYS = { settings:'ftdcap/settings', expenses:'ftdcap/expenses', official:'ftdcap/official' };
+var KEYS = { settings:'ftdcap/settings', expenses:'ftdcap/expenses', official:'ftdcap/official', facturas:'ftdcap/facturas' };
 var FIREBASE_READY = !!(firebaseConfig.apiKey && firebaseConfig.databaseURL);
 var db = null;
 if(FIREBASE_READY && typeof firebase !== 'undefined'){
@@ -341,6 +341,55 @@ function isUserEditing(){
   if(!content || !content.contains(active)) return false;
   var tag = active.tagName;
   return tag==='INPUT' || tag==='SELECT' || tag==='TEXTAREA';
+}
+
+/* ================= FACTURA ADJUNTA (archivo por gasto) ================= */
+async function saveFacturaAdjunta(expenseId, file){
+  var base64 = await fileToBase64(file);
+  return await storageSet(KEYS.facturas+'/'+expenseId, { mimeType:file.type, nombreOriginal:file.name, data:base64 });
+}
+async function getFacturaAdjunta(expenseId){
+  return await storageGet(KEYS.facturas+'/'+expenseId);
+}
+async function deleteFacturaAdjunta(expenseId){
+  return await storageSet(KEYS.facturas+'/'+expenseId, null);
+}
+function extFromMime(mime){
+  if(!mime) return 'archivo';
+  if(mime.indexOf('pdf')!==-1) return 'pdf';
+  if(mime.indexOf('png')!==-1) return 'png';
+  if(mime.indexOf('jpeg')!==-1 || mime.indexOf('jpg')!==-1) return 'jpg';
+  if(mime.indexOf('webp')!==-1) return 'webp';
+  return 'archivo';
+}
+function buildFacturaFileName(x, mimeType){
+  var proveedor = (x.proveedor||'').trim() || 'Proveedor';
+  var oc = (x.ordenCompra||'').trim() || 'Sin OC';
+  var rec = (x.numeroRecepcion||'').trim() || 'Sin recepción';
+  var base = (proveedor+', '+oc+', '+rec).replace(/[\\\/:*?"<>|]/g,'-');
+  return base+'.'+extFromMime(mimeType);
+}
+async function descargarFactura(expenseId, btn){
+  var x = state.expenses.find(function(e2){return e2.id===expenseId;});
+  if(!x) return;
+  var original = btn ? btn.textContent : null;
+  if(btn){ btn.disabled = true; btn.textContent = 'Descargando…'; }
+  try{
+    var factura = await getFacturaAdjunta(expenseId);
+    if(!factura || !factura.data){ alert('No se encontró la factura adjunta para este gasto.'); return; }
+    var fileName = buildFacturaFileName(x, factura.mimeType);
+    var link = document.createElement('a');
+    link.href = 'data:'+(factura.mimeType||'application/octet-stream')+';base64,'+factura.data;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }catch(err){
+    console.error(err);
+    alert('No se pudo descargar la factura. Intenta de nuevo.');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = original; }
+  }
 }
 
 function sumMeses(meses){ return FISCAL_MONTHS.reduce(function(s,m){return s+(Number((meses||{})[m])||0);},0); }
@@ -658,7 +707,7 @@ function renderCargar(el){
     '<div class="section-card">'
       + '<div class="section-head"><div><h3>Registrar factura cargada en Procura</h3><div class="shint">Cualquier persona del equipo puede registrar aquí. La fecha y el mes de carga se toman automáticamente.</div></div></div>'
       + '<div class="ocr-block">'
-        + '<div class="otitle">📄 Leer factura automáticamente (opcional)</div>'
+        + '<div class="otitle">📎 Adjuntar factura (y leerla con IA, opcional)</div>'
         + '<div class="orow">'
           + '<label class="btn btn-ghost btn-sm file-picker-btn" for="f_factura_file">📎 Seleccionar archivo</label>'
           + '<input type="file" id="f_factura_file" accept="image/*,.pdf" style="display:none;">'
@@ -667,7 +716,7 @@ function renderCargar(el){
           + (EMBEDDED_GEMINI_KEY ? '' : '<button type="button" class="btn btn-ghost btn-sm" id="btnConfigurarLlave">⚙️ Configurar llave de IA</button>')
           + '<span id="ocrMsg" class="hint"></span>'
         + '</div>'
-        + '<div class="onote">Sube la foto o PDF de la factura y esto intentará llenar el número de factura y el monto. Siempre revisa que estén correctos antes de registrar. La llave de IA se guarda solo en tu cuenta, cada persona la configura una vez.</div>'
+        + '<div class="onote">El archivo que subas aquí queda adjunto a este registro (lo podrás descargar luego desde "Gastos cargados" o "Seguimiento"). El botón "Leer con IA" es opcional y solo intenta llenar factura, proveedor y monto automáticamente — siempre revisa que estén correctos antes de registrar. La llave de IA se guarda solo en tu cuenta, cada persona la configura una vez.</div>'
       + '</div>'
       + '<form id="expenseForm">'
         + '<div class="form-grid">'
@@ -714,18 +763,27 @@ function renderCargar(el){
     var submitBtn = $('#expenseForm button[type="submit"]');
     submitBtn.disabled = true;
     var now = todayISO();
+    var facturaFile = ($('#f_factura_file').files && $('#f_factura_file').files[0]) || null;
     var entry = {
       id:uid(), solicitud:$('#f_solicitud').value.trim(), proveedor:$('#f_proveedor').value.trim(),
       numeroFactura:$('#f_factura').value.trim(), actividadId:act.id, concepto:$('#f_concepto').value.trim(),
       monto:parseFloat($('#f_monto').value)||0, mes:now.slice(0,7), cargadoPor:responsable, fechaCarga:now,
-      enPanel:false, aprobado:false, ordenCompra:'', numeroRecepcion:'', cargadoCxP:false
+      enPanel:false, aprobado:false, ordenCompra:'', numeroRecepcion:'', cargadoCxP:false, tieneFactura:!!facturaFile
     };
     var newList = state.expenses.concat([entry]);
     var ok = await storageSet(KEYS.expenses, newList);
     var msg = $('#formMsg');
     if(ok){
       state.expenses = newList;
-      msg.style.color='var(--green)'; msg.textContent='✓ Gasto registrado y visible para todo el equipo.';
+      var facturaOk = true;
+      if(facturaFile){
+        msg.style.color='var(--gray)'; msg.textContent='Guardando factura adjunta…';
+        facturaOk = await saveFacturaAdjunta(entry.id, facturaFile);
+      }
+      msg.style.color = facturaOk ? 'var(--green)' : 'var(--amber)';
+      msg.textContent = facturaOk
+        ? ('✓ Gasto registrado'+(facturaFile?' con la factura adjunta':'')+' y visible para todo el equipo.')
+        : '✓ Gasto registrado, pero la factura adjunta no se pudo guardar (revisa tu conexión y vuelve a intentarlo desde "Gastos cargados").';
       $('#expenseForm').reset(); $('#f_fecha_display').textContent = todayISO()+' (automática)';
       var ocrMsgEl=$('#ocrMsg'); if(ocrMsgEl) ocrMsgEl.textContent='';
       var fnd=$('#fileNameDisplay'); if(fnd){ fnd.textContent='Ningún archivo seleccionado'; fnd.style.color=''; }
@@ -758,21 +816,29 @@ function renderCargar(el){
       await setGeminiKey(entered.trim());
     }
     var file = fileInput.files[0];
-    ocrMsg.style.color='var(--gray)'; ocrMsg.textContent='Leyendo factura…';
+    ocrMsg.style.color='var(--gray)'; ocrMsg.textContent='Leyendo documento…';
     try{
       var base64 = await fileToBase64(file);
       var result = await extractInvoiceData(base64, file.type);
+      var esCotizacion = result.tipoDocumento==='cotizacion';
       var camposLeidos = [];
-      if(result.numeroFactura){ $('#f_factura').value = result.numeroFactura; camposLeidos.push('factura'); }
+      if(esCotizacion){
+        $('#f_factura').value = '';
+      } else if(result.numeroFactura){
+        $('#f_factura').value = result.numeroFactura; camposLeidos.push('factura');
+      }
       if(result.proveedor){ $('#f_proveedor').value = result.proveedor; camposLeidos.push('proveedor'); }
       if(result.monto!==null && result.monto!==undefined && result.monto!==''){
         var montoLimpio = parseFloat(String(result.monto).replace(/[^0-9.,-]/g,'').replace(/,/g,''));
-        if(!isNaN(montoLimpio)){ $('#f_monto').value = montoLimpio; camposLeidos.push('monto'); }
+        if(!isNaN(montoLimpio)){ $('#f_monto').value = montoLimpio; camposLeidos.push('monto sin IVA'); }
       }
-      if(camposLeidos.length){
+      if(esCotizacion){
+        ocrMsg.style.color='var(--amber)';
+        ocrMsg.textContent = '⚠ Esto parece una cotización/presupuesto, no una factura — no llené el Nº de factura'+(camposLeidos.length?' (sí completé: '+camposLeidos.join(', ')+')':'')+'. Revisa bien antes de registrar.';
+      } else if(camposLeidos.length){
         ocrMsg.style.color='var(--green)'; ocrMsg.textContent='✓ Se completó: '+camposLeidos.join(', ')+'. Revisa los datos antes de registrar.';
       } else {
-        ocrMsg.style.color='var(--amber)'; ocrMsg.textContent='La IA no pudo identificar ningún dato en esta factura. Completa los datos a mano.';
+        ocrMsg.style.color='var(--amber)'; ocrMsg.textContent='La IA no pudo identificar ningún dato en este documento. Completa los datos a mano.';
       }
     }catch(err){
       console.error(err);
@@ -814,22 +880,29 @@ function renderExpensesTable(){
     var actions = locked
       ? '<span class="tag green" title="Ya está reflejado en el panel oficial, no se puede editar ni eliminar.">🔒 En panel</span>'
       : '<button class="btn btn-danger btn-sm" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>';
+    var facturaCell = x.tieneFactura
+      ? '<button class="btn btn-ghost btn-sm" data-action="descargar-factura" data-id="'+x.id+'">📎 Descargar</button>'
+      : '<span class="muted">—</span>';
     return '<tr>'
       + '<td class="mono">'+esc(x.solicitud)+'</td><td>'+esc(x.proveedor)+'</td><td class="mono">'+esc(x.numeroFactura||'—')+'</td>'
       + '<td>'+esc(x.concepto)+'</td><td>'+esc(activityName(x.actividadId))+'</td>'
       + '<td class="num">'+montoCell+'</td><td>'+mesCell+'</td><td class="mono">'+esc(x.fechaCarga)+'</td>'
-      + '<td><span class="tag blue">'+esc(x.cargadoPor||'—')+'</span></td><td>'+actions+'</td></tr>';
+      + '<td><span class="tag blue">'+esc(x.cargadoPor||'—')+'</span></td><td>'+facturaCell+'</td><td>'+actions+'</td></tr>';
   }).join('');
 
   $('#expensesTableWrap').innerHTML = list.length
-    ? '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Concepto</th><th>Actividad</th><th class="num">Monto</th><th>Mes</th><th>Fecha carga</th><th>Responsable</th><th></th></tr>'+body+'</table></div>'
+    ? '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Concepto</th><th>Actividad</th><th class="num">Monto</th><th>Mes</th><th>Fecha carga</th><th>Responsable</th><th>Factura</th><th></th></tr>'+body+'</table></div>'
     : '<div class="empty">No hay gastos que coincidan con el filtro.</div>';
 
+  $$('button[data-action="descargar-factura"]').forEach(function(btn){
+    btn.addEventListener('click', function(){ descargarFactura(btn.dataset.id, btn); });
+  });
   $$('button[data-action="del-expense"]').forEach(function(btn){
     btn.addEventListener('click', async function(){
       var x = state.expenses.find(function(e2){return e2.id===btn.dataset.id;});
       if(x && x.enPanel){ alert('Este gasto ya está en el panel oficial y no se puede eliminar.'); return; }
       if(!confirm('¿Eliminar este gasto? Esta acción no se puede deshacer.')) return;
+      if(x && x.tieneFactura) await deleteFacturaAdjunta(x.id);
       state.expenses = state.expenses.filter(function(x2){return x2.id!==btn.dataset.id;});
       await storageSet(KEYS.expenses, state.expenses); renderContent();
     });
@@ -890,6 +963,9 @@ function renderSegTable(){
     var estado = computeEstadoTramite(x);
     var locked = !!x.enPanel;
     var dis = locked ? 'disabled' : '';
+    var facturaCell = x.tieneFactura
+      ? '<button class="btn btn-ghost btn-sm" data-dl-id="'+x.id+'">📎 Descargar</button>'
+      : '<span class="muted">—</span>';
     return '<tr>'
       + '<td class="mono">'+esc(x.solicitud)+'</td><td>'+esc(x.proveedor)+'</td>'
       + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-factura" data-id="'+x.id+'" value="'+esc(x.numeroFactura||'')+'" '+dis+'></td>'
@@ -898,12 +974,17 @@ function renderSegTable(){
       + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-recepcion" data-id="'+x.id+'" value="'+esc(x.numeroRecepcion||'')+'" placeholder="Sin recibir" '+dis+'></td>'
       + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-cxp" data-id="'+x.id+'" '+(x.cargadoCxP?'checked':'')+' '+dis+' title="Cargado en el Excel de CxP y factura adjunta en Drive"></div></td>'
       + '<td>'+(locked?'<span class="tag green" title="Ya está en panel oficial, no editable">🔒 '+esc(estado.label)+'</span>':'<span class="tag '+estado.cls+'">'+esc(estado.label)+'</span>')+'</td>'
+      + '<td>'+facturaCell+'</td>'
       + '<td><button class="btn btn-primary btn-sm" data-action="seg-copiar" data-id="'+x.id+'">📋 Copiar</button></td></tr>';
   }).join('');
 
   $('#segTableWrap').innerHTML = list.length
-    ? '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Aprobado</th><th>Orden de compra</th><th>Nº Recepción</th><th>En CxP y Drive</th><th>Estado</th><th></th></tr>'+body+'</table></div>'
+    ? '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Aprobado</th><th>Orden de compra</th><th>Nº Recepción</th><th>En CxP y Drive</th><th>Estado</th><th>Factura</th><th></th></tr>'+body+'</table></div>'
     : '<div class="empty">No hay gastos que coincidan con el filtro.</div>';
+
+  $$('#segTableWrap [data-dl-id]').forEach(function(btn){
+    btn.addEventListener('click', function(){ descargarFactura(btn.dataset.dlId, btn); });
+  });
 
   $$('#segTableWrap [data-action]').forEach(function(el2){
     el2.addEventListener('change', async function(){
