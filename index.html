@@ -376,7 +376,11 @@ async function descargarFactura(expenseId, btn){
   if(btn){ btn.disabled = true; btn.textContent = 'Descargando…'; }
   try{
     var factura = await getFacturaAdjunta(expenseId);
-    if(!factura || !factura.data){ alert('No se encontró la factura adjunta para este gasto.'); return; }
+    if(!factura || !factura.data){
+      alert('No se encontró la factura adjunta para este gasto (puede que no se haya guardado bien). Usa el botón "📎 Adjuntar" en esta misma fila para volver a subirla.');
+      if(x){ x.tieneFactura = false; await storageSet(KEYS.expenses, state.expenses); renderContent(); }
+      return;
+    }
     var fileName = buildFacturaFileName(x, factura.mimeType);
     var link = document.createElement('a');
     link.href = 'data:'+(factura.mimeType||'application/octet-stream')+';base64,'+factura.data;
@@ -390,6 +394,26 @@ async function descargarFactura(expenseId, btn){
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = original; }
   }
+}
+function attachFacturaFlow(expenseId, btn){
+  var input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*,.pdf';
+  input.onchange = async function(){
+    if(!input.files || !input.files[0]) return;
+    var original = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Adjuntando…';
+    var ok = await saveFacturaAdjunta(expenseId, input.files[0]);
+    if(ok){
+      var x = state.expenses.find(function(e2){return e2.id===expenseId;});
+      if(x) x.tieneFactura = true;
+      await storageSet(KEYS.expenses, state.expenses);
+    } else {
+      alert('No se pudo guardar la factura. Revisa tu conexión (o las reglas de Firebase, ruta "ftdcap/facturas") e intenta de nuevo.');
+    }
+    renderContent();
+  };
+  input.click();
 }
 
 function sumMeses(meses){ return FISCAL_MONTHS.reduce(function(s,m){return s+(Number((meses||{})[m])||0);},0); }
@@ -779,11 +803,17 @@ function renderCargar(el){
       if(facturaFile){
         msg.style.color='var(--gray)'; msg.textContent='Guardando factura adjunta…';
         facturaOk = await saveFacturaAdjunta(entry.id, facturaFile);
+        if(!facturaOk){
+          // Evita dejar un botón de "Descargar" roto: corrige el registro para reflejar que no se guardó.
+          entry.tieneFactura = false;
+          state.expenses = state.expenses.map(function(x){ return x.id===entry.id ? entry : x; });
+          await storageSet(KEYS.expenses, state.expenses);
+        }
       }
       msg.style.color = facturaOk ? 'var(--green)' : 'var(--amber)';
       msg.textContent = facturaOk
         ? ('✓ Gasto registrado'+(facturaFile?' con la factura adjunta':'')+' y visible para todo el equipo.')
-        : '✓ Gasto registrado, pero la factura adjunta no se pudo guardar (revisa tu conexión y vuelve a intentarlo desde "Gastos cargados").';
+        : '✓ Gasto registrado, pero la factura adjunta no se pudo guardar (revisa tu conexión y las reglas de Firebase, y vuelve a adjuntarla desde "Gastos cargados").';
       $('#expenseForm').reset(); $('#f_fecha_display').textContent = todayISO()+' (automática)';
       var ocrMsgEl=$('#ocrMsg'); if(ocrMsgEl) ocrMsgEl.textContent='';
       var fnd=$('#fileNameDisplay'); if(fnd){ fnd.textContent='Ningún archivo seleccionado'; fnd.style.color=''; }
@@ -882,7 +912,7 @@ function renderExpensesTable(){
       : '<button class="btn btn-danger btn-sm" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>';
     var facturaCell = x.tieneFactura
       ? '<button class="btn btn-ghost btn-sm" data-action="descargar-factura" data-id="'+x.id+'">📎 Descargar</button>'
-      : '<span class="muted">—</span>';
+      : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm" data-action="adjuntar-factura" data-id="'+x.id+'">📎 Adjuntar</button>');
     return '<tr>'
       + '<td class="mono">'+esc(x.solicitud)+'</td><td>'+esc(x.proveedor)+'</td><td class="mono">'+esc(x.numeroFactura||'—')+'</td>'
       + '<td>'+esc(x.concepto)+'</td><td>'+esc(activityName(x.actividadId))+'</td>'
@@ -896,6 +926,9 @@ function renderExpensesTable(){
 
   $$('button[data-action="descargar-factura"]').forEach(function(btn){
     btn.addEventListener('click', function(){ descargarFactura(btn.dataset.id, btn); });
+  });
+  $$('button[data-action="adjuntar-factura"]').forEach(function(btn){
+    btn.addEventListener('click', function(){ attachFacturaFlow(btn.dataset.id, btn); });
   });
   $$('button[data-action="del-expense"]').forEach(function(btn){
     btn.addEventListener('click', async function(){
@@ -965,7 +998,7 @@ function renderSegTable(){
     var dis = locked ? 'disabled' : '';
     var facturaCell = x.tieneFactura
       ? '<button class="btn btn-ghost btn-sm" data-dl-id="'+x.id+'">📎 Descargar</button>'
-      : '<span class="muted">—</span>';
+      : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm" data-attach-id="'+x.id+'">📎 Adjuntar</button>');
     return '<tr>'
       + '<td class="mono">'+esc(x.solicitud)+'</td><td>'+esc(x.proveedor)+'</td>'
       + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-factura" data-id="'+x.id+'" value="'+esc(x.numeroFactura||'')+'" '+dis+'></td>'
@@ -984,6 +1017,9 @@ function renderSegTable(){
 
   $$('#segTableWrap [data-dl-id]').forEach(function(btn){
     btn.addEventListener('click', function(){ descargarFactura(btn.dataset.dlId, btn); });
+  });
+  $$('#segTableWrap [data-attach-id]').forEach(function(btn){
+    btn.addEventListener('click', function(){ attachFacturaFlow(btn.dataset.attachId, btn); });
   });
 
   $$('#segTableWrap [data-action]').forEach(function(el2){
