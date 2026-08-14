@@ -981,9 +981,23 @@ async function init(){
   state.currentMonth = FISCAL_MONTHS.indexOf(realNow)!==-1 ? realNow : FISCAL_MONTHS[0];
   renderMonthSelect();
   renderContent();
-  setInterval(async function(){ await loadAll(); renderContent(); }, 7000);
+  function isUserEditing(){
+    var active = document.activeElement;
+    if(!active) return false;
+    var content = $('#content');
+    if(!content || !content.contains(active)) return false;
+    var tag = active.tagName;
+    return tag==='INPUT' || tag==='SELECT' || tag==='TEXTAREA';
+  }
+  setInterval(async function(){
+    await loadAll();
+    if(!isUserEditing()) renderContent();
+  }, 7000);
   document.addEventListener('visibilitychange', async function(){
-    if(document.visibilityState==='visible'){ await loadAll(); renderContent(); }
+    if(document.visibilityState==='visible'){
+      await loadAll();
+      if(!isUserEditing()) renderContent();
+    }
   });
 }
 init();
