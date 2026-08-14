@@ -220,8 +220,12 @@ function fmtUSD(n){ n=Number(n)||0; var neg=n<0; n=Math.abs(n); return (neg?'-':
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 
 /* ================= OCR (Gemini, opcional) ================= */
+/* Si Mónica pega aquí su llave de Gemini, todo el equipo la usa automáticamente sin configurarla.
+   Recomendado: restringe esta llave en Google AI Studio / Google Cloud Console para que solo
+   funcione desde tu dominio de GitHub Pages (ver instrucciones que te dio Claude). */
+var EMBEDDED_GEMINI_KEY = '';
 var GEMINI_KEY_KEY = 'ftdcap_gemini_key';
-function getGeminiKey(){ return localStorage.getItem(GEMINI_KEY_KEY) || ''; }
+function getGeminiKey(){ return localStorage.getItem(GEMINI_KEY_KEY) || EMBEDDED_GEMINI_KEY || ''; }
 function setGeminiKey(k){ localStorage.setItem(GEMINI_KEY_KEY, k); }
 function fileToBase64(file){
   return new Promise(function(resolve,reject){
@@ -233,12 +237,19 @@ function fileToBase64(file){
 }
 async function extractInvoiceData(base64, mimeType){
   var key = await getGeminiKey();
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+key;
-  var body = { contents:[{ parts:[
-    { text:'Extrae de esta factura el número de factura y el monto total en dólares (USD). Responde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"numeroFactura":"...","monto":123.45}. Si no encuentras un dato usa null.' },
-    { inline_data:{ mime_type:mimeType, data:base64 } }
-  ]}]};
-  var res = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  var url = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+  var isPdf = mimeType === 'application/pdf';
+  var filePart = isPdf
+    ? { type:'document', data:base64, mime_type:mimeType }
+    : { type:'image', data:base64, mime_type:mimeType };
+  var body = {
+    model: 'gemini-3.6-flash',
+    input: [
+      filePart,
+      { type:'text', text:'Extrae de esta factura el número de factura y el monto total en dólares (USD). Responde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"numeroFactura":"...","monto":123.45}. Si no encuentras un dato usa null.' }
+    ]
+  };
+  var res = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)});
   if(!res.ok){
     var errBody = '';
     try{ var errJson = await res.json(); errBody = (errJson && errJson.error && errJson.error.message) || JSON.stringify(errJson); }catch(e){ try{ errBody = await res.text(); }catch(e2){} }
@@ -247,7 +258,11 @@ async function extractInvoiceData(base64, mimeType){
     throw err;
   }
   var data = await res.json();
-  var text = data.candidates[0].content.parts[0].text;
+  var steps = data.steps || [];
+  var modelStep = null;
+  for(var i=steps.length-1;i>=0;i--){ if(steps[i].type==='model_output'){ modelStep = steps[i]; break; } }
+  if(!modelStep) throw new Error('La respuesta de Gemini no tuvo el formato esperado.');
+  var text = (modelStep.content||[]).filter(function(c){return c.type==='text';}).map(function(c){return c.text;}).join('');
   text = text.replace(/```json/gi,'').replace(/```/g,'').trim();
   return JSON.parse(text);
 }
@@ -645,9 +660,11 @@ function renderCargar(el){
       + '<div class="ocr-block">'
         + '<div class="otitle">📄 Leer factura automáticamente (opcional)</div>'
         + '<div class="orow">'
-          + '<input type="file" id="f_factura_file" accept="image/*,.pdf">'
-          + '<button type="button" class="btn btn-ghost btn-sm" id="btnLeerFactura">🔍 Leer con IA</button>'
-          + '<button type="button" class="btn btn-ghost btn-sm" id="btnConfigurarLlave">⚙️ Configurar llave de IA</button>'
+          + '<label class="btn btn-ghost btn-sm file-picker-btn" for="f_factura_file">📎 Seleccionar archivo</label>'
+          + '<input type="file" id="f_factura_file" accept="image/*,.pdf" style="display:none;">'
+          + '<span id="fileNameDisplay" class="hint" style="font-weight:600;">Ningún archivo seleccionado</span>'
+          + '<button type="button" class="btn btn-primary btn-sm" id="btnLeerFactura">🔍 Leer con IA</button>'
+          + (EMBEDDED_GEMINI_KEY ? '' : '<button type="button" class="btn btn-ghost btn-sm" id="btnConfigurarLlave">⚙️ Configurar llave de IA</button>')
           + '<span id="ocrMsg" class="hint"></span>'
         + '</div>'
         + '<div class="onote">Sube la foto o PDF de la factura y esto intentará llenar el número de factura y el monto. Siempre revisa que estén correctos antes de registrar. La llave de IA se guarda solo en tu cuenta, cada persona la configura una vez.</div>'
@@ -711,11 +728,23 @@ function renderCargar(el){
       msg.style.color='var(--green)'; msg.textContent='✓ Gasto registrado y visible para todo el equipo.';
       $('#expenseForm').reset(); $('#f_fecha_display').textContent = todayISO()+' (automática)';
       var ocrMsgEl=$('#ocrMsg'); if(ocrMsgEl) ocrMsgEl.textContent='';
+      var fnd=$('#fileNameDisplay'); if(fnd){ fnd.textContent='Ningún archivo seleccionado'; fnd.style.color=''; }
     } else {
       msg.style.color='var(--red)'; msg.textContent='No se pudo guardar. Revisa tu conexión e intenta de nuevo.';
     }
     submitBtn.disabled=false;
     renderContent();
+  });
+
+  $('#f_factura_file').addEventListener('change', function(e){
+    var display = $('#fileNameDisplay');
+    if(e.target.files && e.target.files[0]){
+      display.textContent = e.target.files[0].name;
+      display.style.color = 'var(--navy-2)';
+    } else {
+      display.textContent = 'Ningún archivo seleccionado';
+      display.style.color = '';
+    }
   });
 
   $('#btnLeerFactura').addEventListener('click', async function(){
@@ -743,7 +772,8 @@ function renderCargar(el){
       ocrMsg.textContent = 'No se pudo leer la factura '+detail+'. Completa los datos a mano.';
     }
   });
-  $('#btnConfigurarLlave').addEventListener('click', async function(){
+  var btnConfigurarLlave = $('#btnConfigurarLlave');
+  if(btnConfigurarLlave) btnConfigurarLlave.addEventListener('click', async function(){
     var actual = await getGeminiKey();
     var entered = prompt('Pega tu llave de Gemini (se guarda solo en tu cuenta):', actual);
     if(entered!==null) await setGeminiKey(entered.trim());
