@@ -268,19 +268,38 @@ async function extractInvoiceData(base64, mimeType){
 }
 
 /* ================= TASA BCV DEL DÍA (Bs -> USD) ================= */
+async function fetchTasaDolarApi(){
+  var res = await fetch('https://ve.dolarapi.com/v1/dolares/oficial');
+  if(!res.ok) throw new Error('DolarAPI respondió '+res.status);
+  var data = await res.json();
+  var tasa = Number(data.promedio) || Number(data.venta) || Number(data.compra);
+  if(!tasa || tasa<=0) throw new Error('DolarAPI: tasa inválida en la respuesta');
+  return { tasa:tasa, fechaEfectiva:data.fechaActualizacion || null };
+}
+async function fetchTasaBcvVercel(){
+  var res = await fetch('https://bcv-exchange-rates.vercel.app/get_bcv_exchange_rates');
+  if(!res.ok) throw new Error('BCV API (vercel) respondió '+res.status);
+  var data = await res.json();
+  if(data.error || !data.data || !data.data.dolar || !data.data.dolar.value) throw new Error('BCV API (vercel): respuesta inesperada');
+  var tasa = parseFloat(String(data.data.dolar.value).replace(',', '.'));
+  if(isNaN(tasa) || tasa<=0) throw new Error('BCV API (vercel): tasa inválida');
+  return { tasa:tasa, fechaEfectiva:data.data.effective_date || null };
+}
 async function obtenerTasaBCV(){
-  try{
-    var res = await fetch('https://bcv-exchange-rates.vercel.app/get_bcv_exchange_rates');
-    if(!res.ok) throw new Error('BCV API respondió '+res.status);
-    var data = await res.json();
-    if(data.error || !data.data || !data.data.dolar || !data.data.dolar.value) throw new Error('Respuesta inesperada de la API de tasa BCV');
-    var tasa = parseFloat(String(data.data.dolar.value).replace(',', '.'));
-    if(isNaN(tasa) || tasa<=0) throw new Error('Tasa BCV inválida');
-    return { tasa:tasa, fechaEfectiva:data.data.effective_date || null };
-  }catch(e){
-    console.error('No se pudo obtener la tasa BCV del día', e);
-    return null;
+  var fuentes = [
+    { nombre:'DolarAPI', fn:fetchTasaDolarApi },
+    { nombre:'BCV (vercel)', fn:fetchTasaBcvVercel }
+  ];
+  for(var i=0;i<fuentes.length;i++){
+    try{
+      var resultado = await fuentes[i].fn();
+      resultado.fuente = fuentes[i].nombre;
+      return resultado;
+    }catch(e){
+      console.error('No se pudo obtener la tasa BCV desde '+fuentes[i].nombre, e);
+    }
   }
+  return null;
 }
 
 /* ================= ESTADO DEL TRÁMITE ================= */
@@ -886,7 +905,7 @@ function renderCargar(el){
               var montoUSD = montoLimpio / bcv.tasa;
               $('#f_monto').value = montoUSD.toFixed(2);
               camposLeidos.push('monto sin IVA (convertido de Bs a USD)');
-              avisoExtra = ' Convertido de Bs '+montoLimpio.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+' a USD usando la tasa BCV de hoy ('+bcv.tasa.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:4})+' Bs/USD'+(bcv.fechaEfectiva?', '+bcv.fechaEfectiva:'')+'). Verifica el monto en USD antes de registrar.';
+              avisoExtra = ' Convertido de Bs '+montoLimpio.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:2})+' a USD usando la tasa BCV de hoy ('+bcv.tasa.toLocaleString('es-VE',{minimumFractionDigits:2,maximumFractionDigits:4})+' Bs/USD, fuente: '+bcv.fuente+(bcv.fechaEfectiva?', '+bcv.fechaEfectiva:'')+'). Verifica el monto en USD antes de registrar.';
             } else {
               $('#f_monto').value = '';
               avisoExtra = ' ⚠ El documento está en bolívares pero no pude consultar la tasa BCV del día (revisa tu conexión). Convierte el monto a USD manualmente antes de registrar.';
