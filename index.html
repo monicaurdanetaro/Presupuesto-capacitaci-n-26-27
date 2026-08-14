@@ -549,7 +549,7 @@ function renderDashboard(el){
     + '</div>'
 
     + '<div class="section-card">'
-      + '<div class="section-head"><div><h3>Totalizador del año: real vs. con ahorro</h3><div class="shint">Suma de todo el año fiscal. "Gastos (procura)" es lo que el equipo ya registró y que aún no se ve en el panel de Finanzas.</div></div></div>'
+      + '<div class="section-head"><div><h3>Totalizador del año: real vs. con ahorro</h3></div></div>'
       + '<div class="table-scroll"><table>'
         + '<tr><th>Concepto</th><th class="num">Presupuesto real</th><th class="num">Presupuesto con ahorro ('+state.settings.ahorroPct+'%)</th></tr>'
         + '<tr><td>Presupuesto</td><td class="num">'+fmtUSD(totals.presupuestoReal)+'</td><td class="num">'+fmtUSD(totals.presupuestoAhorro)+'</td></tr>'
@@ -562,7 +562,7 @@ function renderDashboard(el){
     + '</div>'
 
     + '<div class="section-card">'
-      + '<div class="section-head"><div><h3>Presupuesto por mes — año fiscal completo</h3><div class="shint">Los 12 meses de Agosto 2026 a Julio 2027. Filas en rojo: el presupuesto no alcanza el gasto oficial de ese mes.</div></div></div>'
+      + '<div class="section-head"><div><h3>Presupuesto por mes — año fiscal completo</h3></div></div>'
       + '<div class="table-scroll"><table>'
         + '<tr><th>Mes</th><th class="num">Presupuesto</th><th class="num">Gasto real (panel)</th><th class="num">Diferencia</th></tr>'
         + FISCAL_MONTHS.map(function(m){
@@ -583,7 +583,7 @@ function renderDashboard(el){
     + '</div>'
 
     + '<div class="section-card">'
-      + '<div class="section-head"><div><h3>Presupuesto con ahorro vs. PPTO planificado</h3><div class="shint">El PPTO planificado es la suma de esa columna en "Por actividad". Diferencia negativa: lo planificado excede el presupuesto con ahorro.</div></div></div>'
+      + '<div class="section-head"><div><h3>Presupuesto con ahorro vs. PPTO planificado</h3></div></div>'
       + '<table><tr><th>Concepto</th><th class="num">Monto</th></tr>'
         + '<tr><td>Presupuesto con ahorro ('+state.settings.ahorroPct+'%)</td><td class="num">'+fmtUSD(totals.presupuestoAhorro)+'</td></tr>'
         + '<tr><td>PPTO planificado (suma de actividades)</td><td class="num">'+fmtUSD(planificadoTotal)+'</td></tr>'
@@ -613,7 +613,7 @@ function renderActividades(el){
   el.innerHTML =
     '<div class="section-card">'
       + '<div class="section-head">'
-        + '<div><h3>Gasto por actividad — año fiscal completo</h3><div class="shint">PPTO planificado: el número adoptado como plan. Activa "Editar" para modificar cualquier dato o agregar actividades. Filas en rojo: disponible negativo.</div></div>'
+        + '<div><h3>Gasto por actividad — año fiscal completo</h3></div>'
         + '<button class="btn btn-ghost btn-sm" id="btnToggleEdit">'+(editing?'Cancelar edición':'✏️ Editar')+'</button>'
       + '</div>'
       + '<div class="toolbar">'
@@ -766,7 +766,7 @@ function wireActivitySearchInput(inputId){
 function renderCargar(el){
   el.innerHTML =
     '<div class="section-card">'
-      + '<div class="section-head"><div><h3>Registrar factura cargada en Procura</h3><div class="shint">Cualquier persona del equipo puede registrar aquí. La fecha y el mes de carga se toman automáticamente.</div></div></div>'
+      + '<div class="section-head"><div><h3>Registrar factura cargada en Procura</h3></div></div>'
       + '<div class="ocr-block">'
         + '<div class="otitle">📎 Adjuntar factura (y leerla con IA, opcional)</div>'
         + '<div class="orow">'
@@ -1145,7 +1145,7 @@ function renderOficial(el){
   var g = computeGlobalMonth(state.currentMonth);
   el.innerHTML =
     '<div class="section-card">'
-      + '<div class="section-head"><div><h3>Cierre de mes con el panel de Finanzas — '+esc(monthLabel(state.currentMonth))+'</h3><div class="shint">Ingresa el total oficial de tu Excel para el mes seleccionado arriba y marca qué gastos cargados ya aparecieron reflejados en él. Una vez marcado un gasto como "en panel", queda bloqueado: ya no se puede editar ni eliminar.</div></div></div>'
+      + '<div class="section-head"><div><h3>Cierre de mes con el panel de Finanzas — '+esc(monthLabel(state.currentMonth))+'</h3></div></div>'
       + '<div class="form-grid" style="grid-template-columns:2fr auto;margin-bottom:0;">'
         + '<div class="field"><label>Gasto real (panel de Finanzas) para '+esc(monthLabel(state.currentMonth))+'</label><input type="number" step="0.01" id="oficialMontoInput" value="'+(g.oficial===null?'':g.oficial)+'" placeholder="Monto según tu Excel"></div>'
         + '<div class="field" style="display:flex;align-items:flex-end;"><button class="btn btn-primary" id="btnSaveOficialTotal" style="width:100%;">Guardar total</button></div>'
