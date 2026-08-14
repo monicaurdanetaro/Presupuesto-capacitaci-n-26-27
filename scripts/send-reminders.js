@@ -1,6 +1,7 @@
 // scripts/send-reminders.js
 // Envía recordatorios personalizados a quienes tengan facturas pendientes
 // por cargar en el Drive de CxP (cargadoCxP === false en Seguimiento).
+// Si TEST_EMAIL está definido, todos los correos se redirigen ahí (modo prueba).
 
 const nodemailer = require('nodemailer');
 
@@ -8,6 +9,7 @@ const FIREBASE_DB_URL = process.env.FIREBASE_DB_URL;
 const SMTP_EMAIL = process.env.SMTP_EMAIL;
 const SMTP_APP_PASSWORD = process.env.SMTP_APP_PASSWORD;
 const REPLY_TO_EMAIL = process.env.REPLY_TO_EMAIL || SMTP_EMAIL;
+const TEST_EMAIL = (process.env.TEST_EMAIL || '').trim();
 
 // Mapeo de iniciales (campo "cargadoPor") a correo real
 const EMAILS = {
@@ -117,6 +119,10 @@ async function main() {
     return;
   }
 
+  if (TEST_EMAIL) {
+    console.log(`⚠ MODO PRUEBA activo: todos los correos se enviarán a ${TEST_EMAIL} en vez de a cada persona real.`);
+  }
+
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
@@ -125,26 +131,30 @@ async function main() {
   });
 
   for (const iniciales of responsablesConPendientes) {
-    const correo = EMAILS[iniciales];
-    if (!correo) {
+    const correoReal = EMAILS[iniciales];
+    if (!correoReal) {
       console.warn(`No hay correo mapeado para las iniciales "${iniciales}", se omite.`);
       continue;
     }
     const items = grupos[iniciales];
-    const nombre = nombreDesdeCorreo(correo);
+    const nombre = nombreDesdeCorreo(correoReal);
     const html = construirHTML(nombre, items);
+    const destinatarioFinal = TEST_EMAIL || correoReal;
+    const asunto = TEST_EMAIL
+      ? `[PRUEBA - originalmente para ${nombre}] ${items.length} factura(s) pendiente(s) por cargar en Drive de CxP`
+      : `Recordatorio: ${items.length} factura(s) pendiente(s) por cargar en Drive de CxP`;
 
     try {
       await transporter.sendMail({
         from: `"Equipo de Capacitación" <${SMTP_EMAIL}>`,
         replyTo: REPLY_TO_EMAIL,
-        to: correo,
-        subject: `Recordatorio: ${items.length} factura(s) pendiente(s) por cargar en Drive de CxP`,
+        to: destinatarioFinal,
+        subject: asunto,
         html
       });
-      console.log(`✓ Enviado a ${correo} (${items.length} pendientes)`);
+      console.log(`✓ Enviado a ${destinatarioFinal} (originalmente ${correoReal}, ${items.length} pendientes)`);
     } catch (err) {
-      console.error(`✗ Error enviando a ${correo}:`, err.message);
+      console.error(`✗ Error enviando a ${destinatarioFinal}:`, err.message);
     }
   }
 }
