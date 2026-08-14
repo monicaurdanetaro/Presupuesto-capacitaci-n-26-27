@@ -1096,7 +1096,7 @@ function renderSegTable(){
       + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-oc" data-id="'+x.id+'" value="'+esc(x.ordenCompra||'')+'" placeholder="Sin OC" '+dis+'></td>'
       + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-recepcion" data-id="'+x.id+'" value="'+esc(x.numeroRecepcion||'')+'" placeholder="Sin recibir" '+dis+'></td>'
       + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-cxp" data-id="'+x.id+'" '+(x.cargadoCxP?'checked':'')+' '+dis+' title="Cargado en el Excel de CxP y factura adjunta en Drive"></div></td>'
-      + '<td>'+(locked?'<span class="tag green" title="Ya está en panel oficial, no editable">🔒 '+esc(estado.label)+'</span>':'<span class="tag '+estado.cls+'">'+esc(estado.label)+'</span>')+'</td>'
+      + '<td>'+(locked?'<span class="tag green" title="Ya está en panel oficial, no editable">🔒 Completado</span>':'<span class="tag '+estado.cls+'">'+esc(estado.label)+'</span>')+'</td>'
       + '<td>'+facturaCell+'</td>'
       + '<td><button class="btn btn-primary btn-sm" data-action="seg-copiar" data-id="'+x.id+'">📋 Copiar</button></td></tr>';
   }).join('');
