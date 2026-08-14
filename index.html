@@ -94,6 +94,8 @@
   .diff-neg{color:var(--red);font-weight:700;}
   .empty{text-align:center;padding:36px 20px;color:var(--gray);font-size:13px;}
   .table-scroll{overflow-x:auto;}
+  #expensesTable th{text-align:center;}
+  #expensesTable th.num{text-align:center;}
   .inline-input{width:96px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;text-align:right;background:#fbfdff;}
   .inline-input.text{text-align:left;width:110px;}
   .inline-select{padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:#fbfdff;}
@@ -960,6 +962,10 @@ function renderExpensesTable(){
       + mesOptions.map(function(m){ var lbl = FISCAL_MONTHS.indexOf(m)===-1 ? monthLabel(m)+' (fuera de año fiscal)' : monthLabel(m); return '<option value="'+m+'" '+(m===x.mes?'selected':'')+'>'+esc(lbl)+'</option>'; }).join('')
       + '</select>';
     var montoCell = '<input type="number" step="0.01" class="inline-input" data-action="expense-monto" data-id="'+x.id+'" value="'+x.monto+'" '+(locked?'disabled':'')+'>';
+    var solicitudCell = '<input type="text" class="inline-input text" style="width:90px;" data-action="expense-solicitud" data-id="'+x.id+'" value="'+esc(x.solicitud)+'" '+(locked?'disabled':'')+'>';
+    var proveedorCell = '<input type="text" class="inline-input text" style="width:130px;" data-action="expense-proveedor" data-id="'+x.id+'" value="'+esc(x.proveedor)+'" '+(locked?'disabled':'')+'>';
+    var numFacturaCell = '<input type="text" class="inline-input text" style="width:90px;" data-action="expense-numfactura" data-id="'+x.id+'" value="'+esc(x.numeroFactura||'')+'" '+(locked?'disabled':'')+'>';
+    var conceptoCell = '<input type="text" class="inline-input text" style="width:150px;" data-action="expense-concepto" data-id="'+x.id+'" value="'+esc(x.concepto)+'" '+(locked?'disabled':'')+'>';
     var actions = locked
       ? '<span class="tag green" title="Ya está reflejado en el panel oficial, no se puede editar ni eliminar.">🔒 En panel</span>'
       : '<button class="btn btn-danger btn-sm" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>';
@@ -967,14 +973,14 @@ function renderExpensesTable(){
       ? '<button class="btn btn-ghost btn-sm" data-action="descargar-factura" data-id="'+x.id+'">📎 Descargar</button>'
       : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm" data-action="adjuntar-factura" data-id="'+x.id+'">📎 Adjuntar</button>');
     return '<tr>'
-      + '<td class="mono">'+esc(x.solicitud)+'</td><td>'+esc(x.proveedor)+'</td><td class="mono">'+esc(x.numeroFactura||'—')+'</td>'
-      + '<td>'+esc(x.concepto)+'</td><td>'+esc(activityName(x.actividadId))+'</td>'
+      + '<td class="mono">'+solicitudCell+'</td><td>'+proveedorCell+'</td><td class="mono">'+numFacturaCell+'</td>'
+      + '<td>'+conceptoCell+'</td><td>'+esc(activityName(x.actividadId))+'</td>'
       + '<td class="num">'+montoCell+'</td><td>'+mesCell+'</td><td class="mono">'+esc(x.fechaCarga)+'</td>'
       + '<td><span class="tag blue">'+esc(x.cargadoPor||'—')+'</span></td><td>'+facturaCell+'</td><td>'+actions+'</td></tr>';
   }).join('');
 
   $('#expensesTableWrap').innerHTML = list.length
-    ? '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Concepto</th><th>Actividad</th><th class="num">Monto</th><th>Mes</th><th>Fecha carga</th><th>Responsable</th><th>Factura</th><th></th></tr>'+body+'</table></div>'
+    ? '<div class="table-scroll"><table id="expensesTable"><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Concepto</th><th>Actividad</th><th class="num">Monto</th><th>Mes</th><th>Fecha carga</th><th>Responsable</th><th>Factura</th><th></th></tr>'+body+'</table></div>'
     : '<div class="empty">No hay gastos que coincidan con el filtro.</div>';
 
   $$('button[data-action="descargar-factura"]').forEach(function(btn){
@@ -1009,6 +1015,21 @@ function renderExpensesTable(){
       y.monto = val; await storageSet(KEYS.expenses, state.expenses); renderContent();
     });
   });
+  function wireEditableTextField(action, field, required){
+    $$('input[data-action="'+action+'"]').forEach(function(inp){
+      inp.addEventListener('change', async function(){
+        var y = state.expenses.find(function(e2){return e2.id===inp.dataset.id;});
+        if(!y || y.enPanel) return;
+        var val = inp.value.trim();
+        if(required && !val){ alert('Este campo no puede quedar vacío.'); renderContent(); return; }
+        y[field] = val; await storageSet(KEYS.expenses, state.expenses); renderContent();
+      });
+    });
+  }
+  wireEditableTextField('expense-solicitud', 'solicitud', true);
+  wireEditableTextField('expense-proveedor', 'proveedor', true);
+  wireEditableTextField('expense-numfactura', 'numeroFactura', false);
+  wireEditableTextField('expense-concepto', 'concepto', true);
 }
 
 /* ================= RENDER: SEGUIMIENTO ================= */
