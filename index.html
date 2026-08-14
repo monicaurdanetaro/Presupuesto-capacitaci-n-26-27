@@ -321,7 +321,9 @@ var state = {
   settings: { activities:[], monthlyBudgets:{}, ahorroPct:2 },
   expenses: [], official: [],
   currentTab: 'dashboard', currentMonth: FISCAL_MONTHS[0],
-  editActividades: false, editGastos: false
+  editActividades: false, editGastos: false,
+  segFilters: { text:'', estado:'', resp:'', mes:'' },
+  expFilters: { text:'', act:'', mes:'', resp:'' }
 };
 
 var TAB_META = {
@@ -799,10 +801,10 @@ function renderCargar(el){
         + '<button class="btn btn-ghost btn-sm" id="btnToggleEditGastos">'+(state.editGastos?'Cancelar edición':'✏️ Editar')+'</button>'
       + '</div>'
       + '<div class="toolbar">'
-        + '<input type="text" id="filterText" placeholder="Buscar proveedor, concepto o solicitud…">'
-        + '<input type="text" id="filterActSearch" placeholder="Filtrar por actividad…" autocomplete="off">'
-        + '<select id="filterMes"><option value="">Todos los meses</option>'+FISCAL_MONTHS.map(function(m){return '<option value="'+m+'">'+esc(monthLabel(m))+'</option>';}).join('')+'</select>'
-        + '<select id="filterResp"><option value="">Todos los responsables</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'">'+r+'</option>';}).join('')+'</select>'
+        + '<input type="text" id="filterText" placeholder="Buscar proveedor, concepto o solicitud…" value="'+esc(state.expFilters.text)+'">'
+        + '<input type="text" id="filterActSearch" placeholder="Filtrar por actividad…" autocomplete="off" value="'+esc(state.expFilters.act)+'">'
+        + '<select id="filterMes"><option value="">Todos los meses</option>'+FISCAL_MONTHS.map(function(m){return '<option value="'+m+'" '+(state.expFilters.mes===m?'selected':'')+'>'+esc(monthLabel(m))+'</option>';}).join('')+'</select>'
+        + '<select id="filterResp"><option value="">Todos los responsables</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'" '+(state.expFilters.resp===r?'selected':'')+'>'+r+'</option>';}).join('')+'</select>'
       + '</div>'
       + '<div id="expensesTableWrap"></div>'
     + '</div>';
@@ -817,10 +819,11 @@ function renderCargar(el){
     renderContent();
   });
 
-  ['filterText','filterActSearch','filterMes','filterResp'].forEach(function(id){
-    $('#'+id).addEventListener('input', renderExpensesTable);
-    $('#'+id).addEventListener('change', renderExpensesTable);
-  });
+  $('#filterText').addEventListener('input', function(){ state.expFilters.text = this.value; renderExpensesTable(); });
+  $('#filterActSearch').addEventListener('input', function(){ state.expFilters.act = this.value; renderExpensesTable(); });
+  $('#filterActSearch').addEventListener('change', function(){ state.expFilters.act = this.value; renderExpensesTable(); });
+  $('#filterMes').addEventListener('change', function(){ state.expFilters.mes = this.value; renderExpensesTable(); });
+  $('#filterResp').addEventListener('change', function(){ state.expFilters.resp = this.value; renderExpensesTable(); });
 
   $('#expenseForm').addEventListener('submit', async function(e){
     e.preventDefault();
@@ -947,11 +950,11 @@ function renderCargar(el){
   });
 }
 function renderExpensesTable(){
-  var textFilter = ($('#filterText').value||'').toLowerCase();
-  var actSearch = $('#filterActSearch').value;
+  var textFilter = (state.expFilters.text||'').toLowerCase();
+  var actSearch = state.expFilters.act;
   var actFilter = actSearch ? (findActivityByDisplay(actSearch)||{id:'__none__'}).id : '';
-  var mesFilter = $('#filterMes').value;
-  var respFilter = $('#filterResp').value;
+  var mesFilter = state.expFilters.mes;
+  var respFilter = state.expFilters.resp;
   var list = state.expenses.filter(function(x){ return !x.manual; }).filter(function(x){
     if(actFilter && x.actividadId!==actFilter) return false;
     if(mesFilter && x.mes!==mesFilter) return false;
@@ -1050,29 +1053,30 @@ function renderExpensesTable(){
 
 /* ================= RENDER: SEGUIMIENTO ================= */
 function renderSeguimiento(el){
+  var f = state.segFilters;
   el.innerHTML =
     '<div class="section-card">'
       + '<div class="section-head"><div><h3>Seguimiento del trámite por factura</h3></div></div>'
       + '<div class="toolbar">'
-        + '<input type="text" id="segFilterText" placeholder="Buscar proveedor, factura o solicitud…">'
-        + '<select id="segFilterEstado"><option value="">Todos los estados</option>'+['Esperando aprobación','Esperando OC','Por cargar en CxP','Completado'].map(function(l){return '<option value="'+esc(l)+'">'+esc(l)+'</option>';}).join('')+'</select>'
-        + '<select id="segFilterResp"><option value="">Todos los responsables</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'">'+r+'</option>';}).join('')+'</select>'
-        + '<select id="segFilterMes"><option value="">Todos los meses</option>'+FISCAL_MONTHS.map(function(m){return '<option value="'+m+'">'+esc(monthLabel(m))+'</option>';}).join('')+'</select>'
+        + '<input type="text" id="segFilterText" placeholder="Buscar proveedor, factura o solicitud…" value="'+esc(f.text)+'">'
+        + '<select id="segFilterEstado"><option value="">Todos los estados</option>'+['Esperando aprobación','Esperando OC','Por cargar en CxP','Completado'].map(function(l){return '<option value="'+esc(l)+'" '+(f.estado===l?'selected':'')+'>'+esc(l)+'</option>';}).join('')+'</select>'
+        + '<select id="segFilterResp"><option value="">Todos los responsables</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'" '+(f.resp===r?'selected':'')+'>'+r+'</option>';}).join('')+'</select>'
+        + '<select id="segFilterMes"><option value="">Todos los meses</option>'+FISCAL_MONTHS.map(function(m){return '<option value="'+m+'" '+(f.mes===m?'selected':'')+'>'+esc(monthLabel(m))+'</option>';}).join('')+'</select>'
       + '</div>'
       + '<div id="segTableWrap"></div>'
     + '</div>';
 
   renderSegTable();
-  ['segFilterText','segFilterEstado','segFilterResp','segFilterMes'].forEach(function(id){
-    $('#'+id).addEventListener('input', renderSegTable);
-    $('#'+id).addEventListener('change', renderSegTable);
-  });
+  $('#segFilterText').addEventListener('input', function(){ state.segFilters.text = this.value; renderSegTable(); });
+  $('#segFilterEstado').addEventListener('change', function(){ state.segFilters.estado = this.value; renderSegTable(); });
+  $('#segFilterResp').addEventListener('change', function(){ state.segFilters.resp = this.value; renderSegTable(); });
+  $('#segFilterMes').addEventListener('change', function(){ state.segFilters.mes = this.value; renderSegTable(); });
 }
 function renderSegTable(){
-  var textFilter = ($('#segFilterText').value||'').toLowerCase();
-  var estadoFilter = $('#segFilterEstado').value;
-  var respFilter = $('#segFilterResp').value;
-  var mesFilter = $('#segFilterMes').value;
+  var textFilter = (state.segFilters.text||'').toLowerCase();
+  var estadoFilter = state.segFilters.estado;
+  var respFilter = state.segFilters.resp;
+  var mesFilter = state.segFilters.mes;
   var list = state.expenses.filter(function(x){ return !x.manual; }).filter(function(x){
     var estado = computeEstadoTramite(x);
     if(estadoFilter && estado.label!==estadoFilter) return false;
