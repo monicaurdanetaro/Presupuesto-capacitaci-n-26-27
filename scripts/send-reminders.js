@@ -1,6 +1,6 @@
 // scripts/send-reminders.js
 // Envía recordatorios personalizados a quienes tengan facturas pendientes
-// por cargar en el Drive de CxP (cargadoCxP === false en Seguimiento).
+// por cargar en el Drive de CxP (cargadoCxP === false y NO están ya en el panel oficial).
 // Si TEST_EMAIL está definido, todos los correos se redirigen ahí (modo prueba).
 
 const nodemailer = require('nodemailer');
@@ -54,7 +54,7 @@ async function obtenerGastos() {
 function agruparPendientesPorResponsable(gastos) {
   const grupos = {};
   gastos
-    .filter(x => x && !x.manual && !x.cargadoCxP)
+    .filter(x => x && !x.manual && !x.cargadoCxP && !x.enPanel)
     .forEach(x => {
       const resp = x.cargadoPor;
       if (!resp) return;
