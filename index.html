@@ -233,13 +233,19 @@ function fileToBase64(file){
 }
 async function extractInvoiceData(base64, mimeType){
   var key = await getGeminiKey();
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key='+key;
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+key;
   var body = { contents:[{ parts:[
     { text:'Extrae de esta factura el número de factura y el monto total en dólares (USD). Responde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"numeroFactura":"...","monto":123.45}. Si no encuentras un dato usa null.' },
     { inline_data:{ mime_type:mimeType, data:base64 } }
   ]}]};
   var res = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  if(!res.ok) throw new Error('Gemini API error: '+res.status);
+  if(!res.ok){
+    var errBody = '';
+    try{ var errJson = await res.json(); errBody = (errJson && errJson.error && errJson.error.message) || JSON.stringify(errJson); }catch(e){ try{ errBody = await res.text(); }catch(e2){} }
+    var err = new Error('Gemini API error '+res.status+(errBody?': '+errBody:''));
+    err.status = res.status; err.detail = errBody;
+    throw err;
+  }
   var data = await res.json();
   var text = data.candidates[0].content.parts[0].text;
   text = text.replace(/```json/gi,'').replace(/```/g,'').trim();
@@ -732,7 +738,9 @@ function renderCargar(el){
       ocrMsg.style.color='var(--green)'; ocrMsg.textContent='✓ Listo. Revisa los datos antes de registrar.';
     }catch(err){
       console.error(err);
-      ocrMsg.style.color='var(--red)'; ocrMsg.textContent='No se pudo leer la factura (revisa tu llave). Completa los datos a mano.';
+      ocrMsg.style.color='var(--red)';
+      var detail = err && err.status ? ('('+err.status+(err.detail?': '+err.detail:'')+')') : '';
+      ocrMsg.textContent = 'No se pudo leer la factura '+detail+'. Completa los datos a mano.';
     }
   });
   $('#btnConfigurarLlave').addEventListener('click', async function(){
