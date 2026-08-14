@@ -1052,7 +1052,7 @@ function renderExpensesTable(){
 function renderSeguimiento(el){
   el.innerHTML =
     '<div class="section-card">'
-      + '<div class="section-head"><div><h3>Seguimiento del trámite por factura</h3><div class="shint">El estado se calcula solo: aprobación → orden de compra → carga en CxP y factura en Drive (un solo check) → completado. Usa "Copiar" para pegar Proveedor / OC / Factura / Recepción / Descripción en el Excel de Cuentas por Pagar.</div></div></div>'
+      + '<div class="section-head"><div><h3>Seguimiento del trámite por factura</h3></div></div>'
       + '<div class="toolbar">'
         + '<input type="text" id="segFilterText" placeholder="Buscar proveedor, factura o solicitud…">'
         + '<select id="segFilterEstado"><option value="">Todos los estados</option>'+['Esperando aprobación','Esperando OC','Por cargar en CxP','Completado'].map(function(l){return '<option value="'+esc(l)+'">'+esc(l)+'</option>';}).join('')+'</select>'
