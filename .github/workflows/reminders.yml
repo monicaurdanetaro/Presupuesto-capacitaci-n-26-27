@@ -1,0 +1,38 @@
+name: Recordatorios CxP
+
+on:
+  schedule:
+    # 10:00 am hora Venezuela (UTC-4) = 14:00 UTC, miércoles
+    - cron: '0 14 * * 3'
+    # 4:00 pm hora Venezuela (UTC-4) = 20:00 UTC, miércoles
+    - cron: '0 20 * * 3'
+  workflow_dispatch:
+    inputs:
+      correo_prueba:
+        description: 'Si lo llenas, TODOS los correos se redirigen aquí (modo prueba). Déjalo vacío para envío real.'
+        required: false
+        default: ''
+
+jobs:
+  enviar-recordatorios:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Enviar recordatorios
+        env:
+          FIREBASE_DB_URL: ${{ secrets.FIREBASE_DB_URL }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+          REPLY_TO_EMAIL: ${{ secrets.REPLY_TO_EMAIL }}
+          TEST_EMAIL: ${{ github.event.inputs.correo_prueba }}
+        run: node scripts/send-reminders.js
