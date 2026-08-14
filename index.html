@@ -321,7 +321,7 @@ var state = {
   settings: { activities:[], monthlyBudgets:{}, ahorroPct:2 },
   expenses: [], official: [],
   currentTab: 'dashboard', currentMonth: FISCAL_MONTHS[0],
-  editActividades: false
+  editActividades: false, editGastos: false
 };
 
 var TAB_META = {
@@ -795,7 +795,9 @@ function renderCargar(el){
     + '</div>'
 
     + '<div class="section-card">'
-      + '<div class="section-head"><div><h3>Gastos cargados</h3><div class="shint">Vista de todo el equipo. Cualquiera puede corregir monto, mes, o eliminar mientras no esté marcado como visto en el panel oficial.</div></div></div>'
+      + '<div class="section-head"><div><h3>Gastos cargados</h3><div class="shint">Vista de todo el equipo. Cualquiera puede corregir monto, mes, o eliminar mientras no esté marcado como visto en el panel oficial.</div></div>'
+        + '<button class="btn btn-ghost btn-sm" id="btnToggleEditGastos">'+(state.editGastos?'Cancelar edición':'✏️ Editar')+'</button>'
+      + '</div>'
       + '<div class="toolbar">'
         + '<input type="text" id="filterText" placeholder="Buscar proveedor, concepto o solicitud…">'
         + '<input type="text" id="filterActSearch" placeholder="Filtrar por actividad…" autocomplete="off">'
@@ -809,6 +811,11 @@ function renderCargar(el){
   wireActivitySearchInput('f_actividad_search');
   wireActivitySearchInput('filterActSearch');
   renderExpensesTable();
+
+  $('#btnToggleEditGastos').addEventListener('click', function(){
+    state.editGastos = !state.editGastos;
+    renderContent();
+  });
 
   ['filterText','filterActSearch','filterMes','filterResp'].forEach(function(id){
     $('#'+id).addEventListener('input', renderExpensesTable);
@@ -962,10 +969,19 @@ function renderExpensesTable(){
       + mesOptions.map(function(m){ var lbl = FISCAL_MONTHS.indexOf(m)===-1 ? monthLabel(m)+' (fuera de año fiscal)' : monthLabel(m); return '<option value="'+m+'" '+(m===x.mes?'selected':'')+'>'+esc(lbl)+'</option>'; }).join('')
       + '</select>';
     var montoCell = '<input type="number" step="0.01" class="inline-input" data-action="expense-monto" data-id="'+x.id+'" value="'+x.monto+'" '+(locked?'disabled':'')+'>';
-    var solicitudCell = '<input type="text" class="inline-input text" style="width:90px;" data-action="expense-solicitud" data-id="'+x.id+'" value="'+esc(x.solicitud)+'" '+(locked?'disabled':'')+'>';
-    var proveedorCell = '<input type="text" class="inline-input text" style="width:130px;" data-action="expense-proveedor" data-id="'+x.id+'" value="'+esc(x.proveedor)+'" '+(locked?'disabled':'')+'>';
-    var numFacturaCell = '<input type="text" class="inline-input text" style="width:90px;" data-action="expense-numfactura" data-id="'+x.id+'" value="'+esc(x.numeroFactura||'')+'" '+(locked?'disabled':'')+'>';
-    var conceptoCell = '<input type="text" class="inline-input text" style="width:150px;" data-action="expense-concepto" data-id="'+x.id+'" value="'+esc(x.concepto)+'" '+(locked?'disabled':'')+'>';
+    var editing = state.editGastos;
+    var solicitudCell = editing
+      ? '<input type="text" class="inline-input text" style="width:90px;" data-action="expense-solicitud" data-id="'+x.id+'" value="'+esc(x.solicitud)+'" '+(locked?'disabled':'')+'>'
+      : esc(x.solicitud);
+    var proveedorCell = editing
+      ? '<input type="text" class="inline-input text" style="width:130px;" data-action="expense-proveedor" data-id="'+x.id+'" value="'+esc(x.proveedor)+'" '+(locked?'disabled':'')+'>'
+      : esc(x.proveedor);
+    var numFacturaCell = editing
+      ? '<input type="text" class="inline-input text" style="width:90px;" data-action="expense-numfactura" data-id="'+x.id+'" value="'+esc(x.numeroFactura||'')+'" '+(locked?'disabled':'')+'>'
+      : esc(x.numeroFactura||'—');
+    var conceptoCell = editing
+      ? '<input type="text" class="inline-input text" style="width:150px;" data-action="expense-concepto" data-id="'+x.id+'" value="'+esc(x.concepto)+'" '+(locked?'disabled':'')+'>'
+      : esc(x.concepto);
     var actions = locked
       ? '<span class="tag green" title="Ya está reflejado en el panel oficial, no se puede editar ni eliminar.">🔒 En panel</span>'
       : '<button class="btn btn-danger btn-sm" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>';
