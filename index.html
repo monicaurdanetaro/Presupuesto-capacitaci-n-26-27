@@ -246,7 +246,7 @@ async function extractInvoiceData(base64, mimeType){
     model: 'gemini-3.6-flash',
     input: [
       filePart,
-      { type:'text', text:'Extrae de esta factura el número de factura y el monto total en dólares (USD). Responde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"numeroFactura":"...","monto":123.45}. Si no encuentras un dato usa null.' }
+      { type:'text', text:'Extrae de esta factura estos 3 datos: 1) el número de factura, 2) el nombre del proveedor o empresa que emite la factura (el vendedor, no el cliente que la recibe), 3) el monto total en dólares (USD) como número puro, sin símbolo de moneda ni separador de miles, usando punto como separador decimal (ej. 1234.56). Responde SOLO con un objeto JSON válido, sin texto adicional ni backticks, con esta forma exacta: {"numeroFactura":"...","proveedor":"...","monto":123.45}. Si no encuentras algún dato usa null.' }
     ]
   };
   var res = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)});
@@ -762,9 +762,18 @@ function renderCargar(el){
     try{
       var base64 = await fileToBase64(file);
       var result = await extractInvoiceData(base64, file.type);
-      if(result.numeroFactura) $('#f_factura').value = result.numeroFactura;
-      if(result.monto!==null && result.monto!==undefined) $('#f_monto').value = result.monto;
-      ocrMsg.style.color='var(--green)'; ocrMsg.textContent='✓ Listo. Revisa los datos antes de registrar.';
+      var camposLeidos = [];
+      if(result.numeroFactura){ $('#f_factura').value = result.numeroFactura; camposLeidos.push('factura'); }
+      if(result.proveedor){ $('#f_proveedor').value = result.proveedor; camposLeidos.push('proveedor'); }
+      if(result.monto!==null && result.monto!==undefined && result.monto!==''){
+        var montoLimpio = parseFloat(String(result.monto).replace(/[^0-9.,-]/g,'').replace(/,/g,''));
+        if(!isNaN(montoLimpio)){ $('#f_monto').value = montoLimpio; camposLeidos.push('monto'); }
+      }
+      if(camposLeidos.length){
+        ocrMsg.style.color='var(--green)'; ocrMsg.textContent='✓ Se completó: '+camposLeidos.join(', ')+'. Revisa los datos antes de registrar.';
+      } else {
+        ocrMsg.style.color='var(--amber)'; ocrMsg.textContent='La IA no pudo identificar ningún dato en esta factura. Completa los datos a mano.';
+      }
     }catch(err){
       console.error(err);
       ocrMsg.style.color='var(--red)';
