@@ -237,6 +237,30 @@ function fileToBase64(file){
     reader.readAsDataURL(file);
   });
 }
+/* Reduce y comprime fotos antes de mandarlas a leer con IA (más rápido, sin afectar la lectura).
+   No toca el archivo original que se guarda como factura adjunta. */
+function comprimirImagenParaLectura(file, maxDim, calidad){
+  return new Promise(function(resolve){
+    if(!file.type || file.type.indexOf('image/')!==0){ resolve(null); return; } // no es imagen (ej. PDF): no se comprime
+    var img = new Image();
+    var url = URL.createObjectURL(file);
+    img.onload = function(){
+      URL.revokeObjectURL(url);
+      var w = img.width, h = img.height;
+      if(w<=maxDim && h<=maxDim){ resolve(null); return; } // ya es pequeña, no vale la pena tocarla
+      var scale = Math.min(maxDim/w, maxDim/h);
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(w*scale);
+      canvas.height = Math.round(h*scale);
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      var dataUrl = canvas.toDataURL('image/jpeg', calidad);
+      resolve({ base64:dataUrl.split(',')[1], mimeType:'image/jpeg' });
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
 async function extractInvoiceData(base64, mimeType){
   var key = await getGeminiKey();
   var url = 'https://generativelanguage.googleapis.com/v1beta/interactions';
@@ -893,10 +917,12 @@ function renderCargar(el){
       await setGeminiKey(entered.trim());
     }
     var file = fileInput.files[0];
-    ocrMsg.style.color='var(--gray)'; ocrMsg.textContent='Leyendo documento…';
+    ocrMsg.style.color='var(--gray)'; ocrMsg.textContent='Optimizando y leyendo documento…';
     try{
-      var base64 = await fileToBase64(file);
-      var result = await extractInvoiceData(base64, file.type);
+      var comprimida = await comprimirImagenParaLectura(file, 1600, 0.82);
+      var base64 = comprimida ? comprimida.base64 : await fileToBase64(file);
+      var mimeParaLectura = comprimida ? comprimida.mimeType : file.type;
+      var result = await extractInvoiceData(base64, mimeParaLectura);
       var esCotizacion = result.tipoDocumento==='cotizacion';
       var camposLeidos = [];
       var avisoExtra = '';
