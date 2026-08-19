@@ -87,6 +87,8 @@
   tr.hl-row td{font-weight:700;background:var(--gray-light);}
   tr.diff-row td{border-top:2px solid var(--navy);font-weight:700;}
   tr.alert-row td{background:var(--red-bg);}
+  tr.new-activity-row td{background:var(--amber-bg);}
+  tr.new-activity-row.alert-row td{background:linear-gradient(0deg, rgba(224,72,63,0.10), rgba(224,72,63,0.10)), var(--amber-bg);}
   tr.current-row td{background:#fff8e8;}
   tr:last-child td{border-bottom:none;}
   .muted{color:var(--gray);}
@@ -351,6 +353,7 @@ var state = {
   currentTab: 'dashboard', currentMonth: FISCAL_MONTHS[0],
   editActividades: false, editGastos: false,
   segFilters: { text:'', estado:'', resp:'', mes:'' },
+  actFilters: { nombre:'', categoria:'' },
   expFilters: { text:'', act:'', mes:'', resp:'' }
 };
 
@@ -649,14 +652,28 @@ function renderDashboard(el){
 /* ================= RENDER: POR ACTIVIDAD ================= */
 function renderActividades(el){
   var editing = state.editActividades;
-  el.innerHTML =
+
+  var presupuestoAhorroAnual = FISCAL_MONTHS.reduce(function(s,m){ return s+computeGlobalMonth(m).presupuestoAhorro; },0);
+  var planificadoTotalGeneral = activeActivities().reduce(function(s,a){return s+(Number(a.pptoPlanificado)||0);},0);
+  var diferenciaPlanGeneral = planificadoTotalGeneral - presupuestoAhorroAnual;
+  var alertaHTML = diferenciaPlanGeneral>0.005
+    ? '<div class="section-card" style="border-color:#f4c6c2;background:var(--red-bg);">'
+        + '<div style="display:flex;align-items:center;gap:12px;">'
+        + '<span style="font-size:22px;">⚠️</span>'
+        + '<div><b style="color:var(--red);">El PPTO planificado supera el presupuesto con ahorro</b>'
+        + '<div class="hint" style="margin-top:4px;">Planificado: '+fmtUSD(planificadoTotalGeneral)+' · Presupuesto con ahorro ('+state.settings.ahorroPct+'%): '+fmtUSD(presupuestoAhorroAnual)+' · Diferencia: <b style="color:var(--red);">'+fmtUSD(diferenciaPlanGeneral)+'</b></div></div>'
+        + '</div>'
+      + '</div>'
+    : '';
+
+  el.innerHTML = alertaHTML +
     '<div class="section-card">'
       + '<div class="section-head">'
         + '<div><h3>Gasto por actividad — año fiscal completo</h3></div>'
         + '<button class="btn btn-ghost btn-sm" id="btnToggleEdit">'+(editing?'Cancelar edición':'✏️ Editar')+'</button>'
       + '</div>'
       + '<div class="toolbar">'
-        + '<input type="text" id="filterActNombre" placeholder="Buscar actividad por nombre…">'
+        + '<input type="text" id="filterActNombre" placeholder="Buscar actividad por nombre…" value="'+esc(state.actFilters.nombre)+'">'
         + '<select id="filterCategoria"><option value="">Todos los proyectos</option></select>'
       + '</div>'
       + '<div id="actTableWrap"></div>'
@@ -667,17 +684,17 @@ function renderActividades(el){
   renderActTable();
 
   $('#btnToggleEdit').addEventListener('click', function(){ state.editActividades = !state.editActividades; renderContent(); });
-  $('#filterCategoria').addEventListener('change', renderActTable);
-  $('#filterActNombre').addEventListener('input', renderActTable);
+  $('#filterCategoria').addEventListener('change', function(){ state.actFilters.categoria = this.value; renderActTable(); });
+  $('#filterActNombre').addEventListener('input', function(){ state.actFilters.nombre = this.value; renderActTable(); });
 }
 function renderCategoriaFilter(){
   var cats = Array.from(new Set(activeActivities().map(function(a){return a.categoria||'Sin categoría';}))).sort();
   var sel = $('#filterCategoria');
-  sel.innerHTML = '<option value="">Todos los proyectos</option>'+cats.map(function(c){return '<option value="'+esc(c)+'">'+esc(c)+'</option>';}).join('');
+  sel.innerHTML = '<option value="">Todos los proyectos</option>'+cats.map(function(c){return '<option value="'+esc(c)+'" '+(state.actFilters.categoria===c?'selected':'')+'>'+esc(c)+'</option>';}).join('');
 }
 function renderActTable(){
-  var catFilter = $('#filterCategoria').value;
-  var nombreFilter = ($('#filterActNombre').value||'').toLowerCase().trim();
+  var catFilter = state.actFilters.categoria;
+  var nombreFilter = (state.actFilters.nombre||'').toLowerCase().trim();
   var editing = state.editActividades;
   var allActs = editing ? (state.settings.activities||[]).slice() : activeActivities();
   var rows = allActs.map(function(a){
@@ -691,25 +708,35 @@ function renderActTable(){
   var body = rows.map(function(r){
     var a = r.actividad;
     var estado = r.disponible<0 ? '<span class="tag red">No cumple</span>' : '<span class="tag green">Cumple</span>';
+    var nuevaTag = a.esNueva ? ' <span class="tag amber" title="Agregada después del plan original">✦ Nueva</span>' : '';
+    var rowClass = (r.disponible<0?'alert-row':'') + (a.esNueva?' new-activity-row':'');
     if(!editing){
-      return '<tr class="'+(r.disponible<0?'alert-row':'')+'">'
-        + '<td>'+esc(a.nombre)+'</td><td>'+esc(a.categoria||'—')+'</td>'
+      return '<tr class="'+rowClass+'">'
+        + '<td>'+esc(a.nombre)+nuevaTag+'</td><td>'+esc(a.categoria||'—')+'</td>'
         + '<td class="num">'+fmtUSD(r.pptoPlanificado)+'</td><td class="num">'+fmtUSD(r.gastado)+'</td>'
         + '<td class="num">'+fmtUSD(r.disponible)+'</td><td>'+estado+'</td></tr>';
     }
-    return '<tr class="'+(r.disponible<0?'alert-row':'')+'">'
+    return '<tr class="'+rowClass+'">'
       + '<td><input type="text" class="inline-input text" data-action="act-cat" data-id="'+a.id+'" value="'+esc(a.categoria||'')+'"></td>'
-      + '<td><input type="text" class="inline-input text" style="width:160px;" data-action="act-nombre" data-id="'+a.id+'" value="'+esc(a.nombre)+'"></td>'
+      + '<td><input type="text" class="inline-input text" style="width:160px;" data-action="act-nombre" data-id="'+a.id+'" value="'+esc(a.nombre)+'">'+nuevaTag+'</td>'
       + '<td class="num"><input type="number" step="0.01" class="inline-input" data-action="act-planificado" data-id="'+a.id+'" value="'+(Number(a.pptoPlanificado)||0)+'"></td>'
       + '<td class="num">'+fmtUSD(r.gastado)+'</td><td class="num">'+fmtUSD(r.disponible)+'</td>'
       + '<td>'+(a.activo!==false?'<span class="tag green">Activo</span>':'<span class="tag amber">Inactivo</span>')+'</td>'
       + '<td style="display:flex;gap:4px;"><button class="btn btn-ghost btn-sm" data-action="act-toggle" data-id="'+a.id+'">'+(a.activo!==false?'Desactivar':'Reactivar')+'</button><button class="btn btn-danger btn-sm" data-action="act-delete" data-id="'+a.id+'">Eliminar</button></td></tr>';
   }).join('');
 
-  var totalRow = editing? '' : ('<tr class="total-row"><td>Total</td><td></td>'
-    + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.pptoPlanificado;},0))+'</td>'
-    + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.gastado;},0))+'</td>'
-    + '<td class="num">'+fmtUSD(rows.reduce(function(a,r){return a+r.disponible;},0))+'</td><td></td></tr>');
+  var totalPlanificadoFiltrado = rows.reduce(function(a,r){return a+r.pptoPlanificado;},0);
+  var totalGastadoFiltrado = rows.reduce(function(a,r){return a+r.gastado;},0);
+  var totalDisponibleFiltrado = rows.reduce(function(a,r){return a+r.disponible;},0);
+  var totalRow = editing
+    ? ('<tr class="total-row"><td></td><td>Total ('+rows.length+' filtrada'+(rows.length===1?'':'s')+')</td>'
+        + '<td class="num">'+fmtUSD(totalPlanificadoFiltrado)+'</td>'
+        + '<td class="num">'+fmtUSD(totalGastadoFiltrado)+'</td>'
+        + '<td class="num">'+fmtUSD(totalDisponibleFiltrado)+'</td><td></td><td></td></tr>')
+    : ('<tr class="total-row"><td>Total ('+rows.length+' filtrada'+(rows.length===1?'':'s')+')</td><td></td>'
+        + '<td class="num">'+fmtUSD(totalPlanificadoFiltrado)+'</td>'
+        + '<td class="num">'+fmtUSD(totalGastadoFiltrado)+'</td>'
+        + '<td class="num">'+fmtUSD(totalDisponibleFiltrado)+'</td><td></td></tr>');
 
   var header = editing
     ? '<tr><th>Categoría</th><th>Actividad</th><th class="num">PPTO planificado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th><th></th></tr>'
@@ -751,7 +778,7 @@ function wireActTableEvents(){
     var name = $('#newActName').value.trim();
     var planificado = parseFloat($('#newActPlanificado').value)||0;
     if(!name){ alert('Ponle un nombre a la actividad.'); return; }
-    state.settings.activities.push({id:uid(), nombre:name, categoria:cat, pptoPlanificado:planificado, activo:true});
+    state.settings.activities.push({id:uid(), nombre:name, categoria:cat, pptoPlanificado:planificado, activo:true, esNueva:true});
     await storageSet(KEYS.settings, state.settings); renderContent();
   });
   var saveBtn = $('#btnSaveActs');
