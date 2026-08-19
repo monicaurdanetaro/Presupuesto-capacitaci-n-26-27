@@ -427,9 +427,14 @@ function extFromMime(mime){
 }
 function buildFacturaFileName(x, mimeType){
   var proveedor = (x.proveedor||'').trim() || 'Proveedor';
-  var oc = (x.ordenCompra||'').trim() || 'Sin OC';
-  var rec = (x.numeroRecepcion||'').trim() || 'Sin recepción';
-  var base = (proveedor+', '+oc+', '+rec).replace(/[\\\/:*?"<>|]/g,'-');
+  var oc = (x.ordenCompra||'').trim();
+  var rec = (x.numeroRecepcion||'').trim();
+  var fact = (x.numeroFactura||'').trim();
+  var partes = [proveedor];
+  partes.push('OC '+(oc||'Sin OC'));
+  partes.push('REC '+(rec||'Sin recepción'));
+  partes.push('FACT '+(fact||'Sin factura'));
+  var base = partes.join(', ').replace(/[\\\/:*?"<>|]/g,'-');
   return base+'.'+extFromMime(mimeType);
 }
 async function descargarFactura(expenseId, btn){
@@ -1130,12 +1135,13 @@ function renderSegTable(){
       + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-recepcion" data-id="'+x.id+'" value="'+esc(x.numeroRecepcion||'')+'" placeholder="Sin recibir" '+dis+'></td>'
       + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-cxp" data-id="'+x.id+'" '+(x.cargadoCxP?'checked':'')+' '+dis+' title="Cargado en el Excel de CxP y factura adjunta en Drive"></div></td>'
       + '<td>'+(locked?'<span class="tag green" title="Ya está en panel oficial, no editable">🔒 Completado</span>':'<span class="tag '+estado.cls+'">'+esc(estado.label)+'</span>')+'</td>'
+      + '<td><span class="tag blue">'+esc(x.cargadoPor||'—')+'</span></td>'
       + '<td>'+facturaCell+'</td>'
       + '<td><button class="btn btn-primary btn-sm" data-action="seg-copiar" data-id="'+x.id+'">📋 Copiar</button></td></tr>';
   }).join('');
 
   $('#segTableWrap').innerHTML = list.length
-    ? '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Aprobado</th><th>Orden de compra</th><th>Nº Recepción</th><th>En CxP y Drive</th><th>Estado</th><th>Factura</th><th></th></tr>'+body+'</table></div>'
+    ? '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Aprobado</th><th>Orden de compra</th><th>Nº Recepción</th><th>En CxP y Drive</th><th>Estado</th><th>Responsable</th><th>Factura</th><th></th></tr>'+body+'</table></div>'
     : '<div class="empty">No hay gastos que coincidan con el filtro.</div>';
 
   $$('#segTableWrap [data-dl-id]').forEach(function(btn){
