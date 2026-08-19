@@ -491,7 +491,10 @@ function normalizeSettings(s){
   if(!s.monthlyBudgets) s.monthlyBudgets = {};
   if(!s.activities) s.activities = [];
   if(typeof s.ahorroPct !== 'number') s.ahorroPct = 2;
-  s.activities.forEach(function(a){ if(typeof a.pptoPlanificado !== 'number') a.pptoPlanificado = 0; });
+  s.activities.forEach(function(a){
+    if(typeof a.pptoPlanificado !== 'number') a.pptoPlanificado = 0;
+    if(a.nombre) a.nombre = a.nombre.replace(/^CA\s+/i, '');
+  });
   return s;
 }
 async function loadAll(){
