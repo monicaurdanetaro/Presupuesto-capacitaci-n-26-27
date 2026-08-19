@@ -708,7 +708,7 @@ function renderActTable(){
   var body = rows.map(function(r){
     var a = r.actividad;
     var estado = r.disponible<0 ? '<span class="tag red">No cumple</span>' : '<span class="tag green">Cumple</span>';
-    var nuevaTag = a.esNueva ? ' <span class="tag amber" title="Agregada después del plan original">✦ Nueva</span>' : '';
+    var nuevaTag = '';
     var rowClass = (r.disponible<0?'alert-row':'') + (a.esNueva?' new-activity-row':'');
     if(!editing){
       return '<tr class="'+rowClass+'">'
