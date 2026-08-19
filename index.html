@@ -55,6 +55,7 @@
   .btn-ghost:hover{background:#e2e8f2;}
   .btn-danger{background:var(--red-bg);color:var(--red);}
   .btn-sm{padding:6px 12px;font-size:11.5px;}
+  .btn-sm.icon-only{padding:6px 9px;font-size:14px;line-height:1;min-width:32px;justify-content:center;}
 
   .section-card{background:#fff;border-radius:var(--card-radius);border:1px solid var(--border);box-shadow:var(--shadow);padding:24px;margin-bottom:22px;}
   .section-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
@@ -96,6 +97,9 @@
   .table-scroll{overflow-x:auto;}
   #expensesTable th{text-align:center;}
   #expensesTable th.num{text-align:center;}
+  #segTable{font-size:12px;}
+  #segTable th{padding:0 6px 8px;font-size:10.5px;}
+  #segTable td{padding:6px 6px;}
   .inline-input{width:96px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;text-align:right;background:#fbfdff;}
   .inline-input.text{text-align:left;width:110px;}
   .inline-select{padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:#fbfdff;}
@@ -1125,23 +1129,23 @@ function renderSegTable(){
     var locked = !!x.enPanel;
     var dis = locked ? 'disabled' : '';
     var facturaCell = x.tieneFactura
-      ? '<button class="btn btn-ghost btn-sm" data-dl-id="'+x.id+'">📎 Descargar</button>'
-      : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm" data-attach-id="'+x.id+'">📎 Adjuntar</button>');
+      ? '<button class="btn btn-ghost btn-sm icon-only" data-dl-id="'+x.id+'" title="Descargar factura">📎</button>'
+      : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm icon-only" data-attach-id="'+x.id+'" title="Adjuntar factura">📎</button>');
     return '<tr>'
       + '<td class="mono">'+esc(x.solicitud)+'</td><td>'+esc(x.proveedor)+'</td>'
-      + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-factura" data-id="'+x.id+'" value="'+esc(x.numeroFactura||'')+'" '+dis+'></td>'
+      + '<td><input type="text" class="inline-input text" style="width:68px;" data-action="seg-factura" data-id="'+x.id+'" value="'+esc(x.numeroFactura||'')+'" '+dis+'></td>'
       + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-aprobado" data-id="'+x.id+'" '+(x.aprobado?'checked':'')+' '+dis+'></div></td>'
-      + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-oc" data-id="'+x.id+'" value="'+esc(x.ordenCompra||'')+'" placeholder="Sin OC" '+dis+'></td>'
-      + '<td><input type="text" class="inline-input text" style="width:90px;" data-action="seg-recepcion" data-id="'+x.id+'" value="'+esc(x.numeroRecepcion||'')+'" placeholder="Sin recibir" '+dis+'></td>'
+      + '<td><input type="text" class="inline-input text" style="width:68px;" data-action="seg-oc" data-id="'+x.id+'" value="'+esc(x.ordenCompra||'')+'" placeholder="Sin OC" '+dis+'></td>'
+      + '<td><input type="text" class="inline-input text" style="width:68px;" data-action="seg-recepcion" data-id="'+x.id+'" value="'+esc(x.numeroRecepcion||'')+'" placeholder="Sin recibir" '+dis+'></td>'
       + '<td><div class="checkbox-cell"><input type="checkbox" data-action="seg-cxp" data-id="'+x.id+'" '+(x.cargadoCxP?'checked':'')+' '+dis+' title="Cargado en el Excel de CxP y factura adjunta en Drive"></div></td>'
       + '<td>'+(locked?'<span class="tag green" title="Ya está en panel oficial, no editable">🔒 Completado</span>':'<span class="tag '+estado.cls+'">'+esc(estado.label)+'</span>')+'</td>'
       + '<td><span class="tag blue">'+esc(x.cargadoPor||'—')+'</span></td>'
       + '<td>'+facturaCell+'</td>'
-      + '<td><button class="btn btn-primary btn-sm" data-action="seg-copiar" data-id="'+x.id+'">📋 Copiar</button></td></tr>';
+      + '<td><button class="btn btn-primary btn-sm icon-only" data-action="seg-copiar" data-id="'+x.id+'" title="Copiar Proveedor / OC / Factura / Recepción / Descripción">📋</button></td></tr>';
   }).join('');
 
   $('#segTableWrap').innerHTML = list.length
-    ? '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Aprobado</th><th>Orden de compra</th><th>Nº Recepción</th><th>En CxP y Drive</th><th>Estado</th><th>Responsable</th><th>Factura</th><th></th></tr>'+body+'</table></div>'
+    ? '<div class="table-scroll"><table id="segTable"><tr><th>Solicitud</th><th>Proveedor</th><th>Nº Factura</th><th>Aprobado</th><th>Orden de compra</th><th>Nº Recepción</th><th>En CxP y Drive</th><th>Estado</th><th>Responsable</th><th>Factura</th><th></th></tr>'+body+'</table></div>'
     : '<div class="empty">No hay gastos que coincidan con el filtro.</div>';
 
   $$('#segTableWrap [data-dl-id]').forEach(function(btn){
