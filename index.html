@@ -218,7 +218,7 @@ function genMonthRange(startYM, endYM){
   return out;
 }
 var FISCAL_MONTHS = genMonthRange('2026-08','2027-07');
-function monthLabel(ym){ var p=ym.split('-'); return MONTH_NAMES[parseInt(p[1],10)-1]+' '+p[0]; }
+function monthLabel(ym){ if(ym==='ALL') return 'Todos los meses'; var p=ym.split('-'); return MONTH_NAMES[parseInt(p[1],10)-1]+' '+p[0]; }
 function currentMonthStr(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function todayISO(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
@@ -555,7 +555,8 @@ function renderNav(){
 }
 function renderMonthSelect(){
   var sel = $('#monthSelect');
-  sel.innerHTML = FISCAL_MONTHS.map(function(m){ return '<option value="'+m+'">'+esc(monthLabel(m))+'</option>'; }).join('');
+  sel.innerHTML = '<option value="ALL">Todos los meses</option>'
+    + FISCAL_MONTHS.map(function(m){ return '<option value="'+m+'">'+esc(monthLabel(m))+'</option>'; }).join('');
   sel.value = state.currentMonth;
 }
 
@@ -839,7 +840,6 @@ function renderCargar(el){
       + '<div class="toolbar">'
         + '<input type="text" id="filterText" placeholder="Buscar proveedor, concepto o solicitud…" value="'+esc(state.expFilters.text)+'">'
         + '<input type="text" id="filterActSearch" placeholder="Filtrar por actividad…" autocomplete="off" value="'+esc(state.expFilters.act)+'">'
-        + '<select id="filterMes"><option value="">Todos los meses</option>'+FISCAL_MONTHS.map(function(m){return '<option value="'+m+'" '+(state.expFilters.mes===m?'selected':'')+'>'+esc(monthLabel(m))+'</option>';}).join('')+'</select>'
         + '<select id="filterResp"><option value="">Todos los responsables</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'" '+(state.expFilters.resp===r?'selected':'')+'>'+r+'</option>';}).join('')+'</select>'
       + '</div>'
       + '<div id="expensesTableWrap"></div>'
@@ -858,7 +858,6 @@ function renderCargar(el){
   $('#filterText').addEventListener('input', function(){ state.expFilters.text = this.value; renderExpensesTable(); });
   $('#filterActSearch').addEventListener('input', function(){ state.expFilters.act = this.value; renderExpensesTable(); });
   $('#filterActSearch').addEventListener('change', function(){ state.expFilters.act = this.value; renderExpensesTable(); });
-  $('#filterMes').addEventListener('change', function(){ state.expFilters.mes = this.value; renderExpensesTable(); });
   $('#filterResp').addEventListener('change', function(){ state.expFilters.resp = this.value; renderExpensesTable(); });
 
   $('#expenseForm').addEventListener('submit', async function(e){
@@ -991,7 +990,7 @@ function renderExpensesTable(){
   var textFilter = (state.expFilters.text||'').toLowerCase();
   var actSearch = state.expFilters.act;
   var actFilter = actSearch ? (findActivityByDisplay(actSearch)||{id:'__none__'}).id : '';
-  var mesFilter = state.expFilters.mes;
+  var mesFilter = state.currentMonth==='ALL' ? '' : state.currentMonth;
   var respFilter = state.expFilters.resp;
   var list = state.expenses.filter(function(x){ return !x.manual; }).filter(function(x){
     if(actFilter && x.actividadId!==actFilter) return false;
@@ -1099,7 +1098,6 @@ function renderSeguimiento(el){
         + '<input type="text" id="segFilterText" placeholder="Buscar proveedor, factura o solicitud…" value="'+esc(f.text)+'">'
         + '<select id="segFilterEstado"><option value="">Todos los estados</option>'+['Esperando aprobación','Esperando OC','Por cargar en CxP','Completado'].map(function(l){return '<option value="'+esc(l)+'" '+(f.estado===l?'selected':'')+'>'+esc(l)+'</option>';}).join('')+'</select>'
         + '<select id="segFilterResp"><option value="">Todos los responsables</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'" '+(f.resp===r?'selected':'')+'>'+r+'</option>';}).join('')+'</select>'
-        + '<select id="segFilterMes"><option value="">Todos los meses</option>'+FISCAL_MONTHS.map(function(m){return '<option value="'+m+'" '+(f.mes===m?'selected':'')+'>'+esc(monthLabel(m))+'</option>';}).join('')+'</select>'
       + '</div>'
       + '<div id="segTableWrap"></div>'
     + '</div>';
@@ -1108,13 +1106,12 @@ function renderSeguimiento(el){
   $('#segFilterText').addEventListener('input', function(){ state.segFilters.text = this.value; renderSegTable(); });
   $('#segFilterEstado').addEventListener('change', function(){ state.segFilters.estado = this.value; renderSegTable(); });
   $('#segFilterResp').addEventListener('change', function(){ state.segFilters.resp = this.value; renderSegTable(); });
-  $('#segFilterMes').addEventListener('change', function(){ state.segFilters.mes = this.value; renderSegTable(); });
 }
 function renderSegTable(){
   var textFilter = (state.segFilters.text||'').toLowerCase();
   var estadoFilter = state.segFilters.estado;
   var respFilter = state.segFilters.resp;
-  var mesFilter = state.segFilters.mes;
+  var mesFilter = state.currentMonth==='ALL' ? '' : state.currentMonth;
   var list = state.expenses.filter(function(x){ return !x.manual; }).filter(function(x){
     var estado = computeEstadoTramite(x);
     if(estadoFilter && estado.label!==estadoFilter) return false;
@@ -1305,7 +1302,14 @@ function renderContent(){
   else if(state.currentTab==='actividades') renderActividades(el);
   else if(state.currentTab==='cargar') renderCargar(el);
   else if(state.currentTab==='seguimiento') renderSeguimiento(el);
-  else if(state.currentTab==='oficial') renderOficial(el);
+  else if(state.currentTab==='oficial'){
+    if(state.currentMonth==='ALL'){
+      el.innerHTML = '<div class="section-card"><div class="lock-panel">'
+        + '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#7c8aa0" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>'
+        + '<h3>Selecciona un mes específico</h3><div>El cierre con Finanzas se hace mes por mes. Elige un mes arriba (distinto de "Todos los meses") para continuar.</div>'
+        + '</div></div>';
+    } else renderOficial(el);
+  }
 }
 
 /* ================= EVENTOS GLOBALES ================= */
