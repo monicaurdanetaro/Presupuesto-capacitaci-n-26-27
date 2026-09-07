@@ -1074,6 +1074,10 @@ function renderExpensesTable(){
     var conceptoCell = editing
       ? '<input type="text" class="inline-input text" style="width:150px;" data-action="expense-concepto" data-id="'+x.id+'" value="'+esc(x.concepto)+'" '+(locked?'disabled':'')+'>'
       : esc(x.concepto);
+    var actividadInputId = 'act-edit-'+x.id;
+    var actividadCell = editing
+      ? '<input type="text" class="inline-input text" style="width:150px;" id="'+actividadInputId+'" data-action="expense-actividad" data-id="'+x.id+'" value="'+esc(activityName(x.actividadId))+'" autocomplete="off" '+(locked?'disabled':'')+'>'
+      : esc(activityName(x.actividadId));
     var actions = locked
       ? (editing ? '<span class="tag green" title="Ya está reflejado en el panel oficial, no se puede editar ni eliminar.">🔒 En panel</span>' : '')
       : (editing ? '<button class="btn btn-danger btn-sm" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>' : '');
@@ -1082,7 +1086,7 @@ function renderExpensesTable(){
       : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm" data-action="adjuntar-factura" data-id="'+x.id+'">📎 Adjuntar</button>');
     return '<tr>'
       + '<td class="mono">'+solicitudCell+'</td><td>'+proveedorCell+'</td><td class="mono">'+numFacturaCell+'</td>'
-      + '<td>'+conceptoCell+'</td><td>'+esc(activityName(x.actividadId))+'</td>'
+      + '<td>'+conceptoCell+'</td><td>'+actividadCell+'</td>'
       + '<td class="num">'+montoCell+'</td><td>'+mesCell+'</td><td class="mono">'+esc(x.fechaCarga)+'</td>'
       + '<td><span class="tag blue">'+esc(x.cargadoPor||'—')+'</span></td><td>'+facturaCell+'</td><td>'+actions+'</td></tr>';
   }).join('');
@@ -1138,6 +1142,17 @@ function renderExpensesTable(){
   wireEditableTextField('expense-proveedor', 'proveedor', true);
   wireEditableTextField('expense-numfactura', 'numeroFactura', false);
   wireEditableTextField('expense-concepto', 'concepto', true);
+
+  $$('input[data-action="expense-actividad"]').forEach(function(inp){
+    wireActivitySearchInput(inp.id);
+    inp.addEventListener('change', async function(){
+      var y = state.expenses.find(function(e2){return e2.id===inp.dataset.id;});
+      if(!y || y.enPanel) return;
+      var act = findActivityByDisplay(inp.value);
+      if(!act){ alert('Selecciona una actividad válida de la lista (empieza a escribir y elige una opción).'); renderContent(); return; }
+      y.actividadId = act.id; await storageSet(KEYS.expenses, state.expenses); renderContent();
+    });
+  });
 }
 
 /* ================= RENDER: SEGUIMIENTO ================= */
