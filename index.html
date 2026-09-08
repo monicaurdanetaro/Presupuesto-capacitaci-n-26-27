@@ -403,7 +403,9 @@ function subscribeRealtime(){
   if(!db) return;
   db.ref(KEYS.settings).on('value', function(snap){
     if(!snap.exists()) return;
-    state.settings = normalizeSettings(snap.val());
+    var s = snap.val();
+    normalizeSettings(s);
+    state.settings = s;
     if(!isUserEditing()) renderContent();
   });
   db.ref(KEYS.expenses).on('value', function(snap){
