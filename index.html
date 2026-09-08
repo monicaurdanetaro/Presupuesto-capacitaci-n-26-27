@@ -364,6 +364,7 @@ var state = {
   editActividades: false, editGastos: false,
   segFilters: { text:'', estado:'', resp:'', mes:'' },
   actFilters: { nombre:'', categoria:'' },
+  mostrarPptoReal: false,
   expFilters: { text:'', act:'', mes:'', resp:'' }
 };
 
@@ -502,10 +503,12 @@ function attachFacturaFlow(expenseId, btn){
 }
 
 function sumMeses(meses){ return FISCAL_MONTHS.reduce(function(s,m){return s+(Number((meses||{})[m])||0);},0); }
+function nombreNormalizado(n){ return String(n||'').replace(/^CA\s+/i,'').trim().toLowerCase(); }
 
 function seedDefaults(){
   var activities = SEED_ACTIVITIES.map(function(a){
-    return {id:uid(), nombre:a.nombre, categoria:a.categoria, pptoPlanificado:sumMeses(a.meses), activo:true};
+    var real = sumMeses(a.meses);
+    return {id:uid(), nombre:a.nombre.replace(/^CA\s+/i,''), categoria:a.categoria, pptoPlanificado:real, pptoReal:real, activo:true};
   });
   return { activities:activities, monthlyBudgets:Object.assign({}, SEED_MONTHLY_BUDGETS), ahorroPct:2 };
 }
@@ -513,21 +516,28 @@ function normalizeSettings(s){
   if(!s.monthlyBudgets) s.monthlyBudgets = {};
   if(!s.activities) s.activities = [];
   if(typeof s.ahorroPct !== 'number') s.ahorroPct = 2;
+  var seDetectoMigracion = false;
   s.activities.forEach(function(a){
     if(typeof a.pptoPlanificado !== 'number') a.pptoPlanificado = 0;
     if(a.nombre) a.nombre = a.nombre.replace(/^CA\s+/i, '');
+    if(typeof a.pptoReal !== 'number'){
+      var match = SEED_ACTIVITIES.find(function(s2){ return nombreNormalizado(s2.nombre)===nombreNormalizado(a.nombre); });
+      a.pptoReal = match ? sumMeses(match.meses) : null;
+      seDetectoMigracion = true;
+    }
   });
-  return s;
+  return seDetectoMigracion;
 }
 async function loadAll(){
   var s = await storageGet(KEYS.settings);
   var e = await storageGet(KEYS.expenses);
   var o = await storageGet(KEYS.official);
   if(!s){ s = seedDefaults(); await storageSet(KEYS.settings, s); }
-  normalizeSettings(s);
+  var necesitaGuardar = normalizeSettings(s);
   state.settings = s;
   state.expenses = e || [];
   state.official = o || [];
+  if(necesitaGuardar) await storageSet(KEYS.settings, s);
 }
 
 /* ================= CÁLCULOS ================= */
@@ -536,7 +546,11 @@ function activityDisplay(a){ return (a.categoria?a.categoria+' — ':'')+a.nombr
 function activityName(id){ var a=(state.settings.activities||[]).find(function(x){return x.id===id;}); return a?a.nombre:'(actividad eliminada)'; }
 function expensesForMonth(mes){ return state.expenses.filter(function(x){return x.mes===mes;}); }
 function expensesForActivityYear(actId){ return state.expenses.filter(function(x){return x.actividadId===actId && FISCAL_MONTHS.indexOf(x.mes)!==-1;}); }
-function officialTotalFor(mes){ var f=state.official.find(function(x){return x.mes===mes;}); return f? f.monto : null; }
+function officialTotalFor(mes){
+  var items = expensesForMonth(mes).filter(function(x){return x.enPanel;});
+  if(items.length===0) return null;
+  return items.reduce(function(s,x){return s+Number(x.monto||0);},0);
+}
 
 function computeGlobalMonth(mes){
   var presupuestoReal = Number(state.settings.monthlyBudgets[mes])||0;
@@ -635,10 +649,10 @@ function renderDashboard(el){
     + '</div>'
 
     + '<div class="section-card">'
-      + '<div class="section-head"><div><h3>Presupuesto con ahorro vs. PPTO planificado</h3></div></div>'
+      + '<div class="section-head"><div><h3>Presupuesto con ahorro vs. PPTO proyectado</h3></div></div>'
       + '<table><tr><th>Concepto</th><th class="num">Monto</th></tr>'
         + '<tr><td>Presupuesto con ahorro ('+state.settings.ahorroPct+'%)</td><td class="num">'+fmtUSD(totals.presupuestoAhorro)+'</td></tr>'
-        + '<tr><td>PPTO planificado (suma de actividades)</td><td class="num">'+fmtUSD(planificadoTotal)+'</td></tr>'
+        + '<tr><td>PPTO proyectado (suma de actividades)</td><td class="num">'+fmtUSD(planificadoTotal)+'</td></tr>'
         + '<tr class="diff-row"><td>Diferencia</td><td class="num '+(diferenciaPlan<0?'diff-neg':'diff-pos')+'">'+fmtUSD(diferenciaPlan)+'</td></tr>'
       + '</table>'
     + '</div>'
@@ -670,8 +684,8 @@ function renderActividades(el){
     ? '<div class="section-card" style="border-color:#f4c6c2;background:var(--red-bg);">'
         + '<div style="display:flex;align-items:center;gap:12px;">'
         + '<span style="font-size:22px;">⚠️</span>'
-        + '<div><b style="color:var(--red);">El PPTO planificado supera el presupuesto con ahorro</b>'
-        + '<div class="hint" style="margin-top:4px;">Planificado: '+fmtUSD(planificadoTotalGeneral)+' · Presupuesto con ahorro ('+state.settings.ahorroPct+'%): '+fmtUSD(presupuestoAhorroAnual)+' · Diferencia: <b style="color:var(--red);">'+fmtUSD(diferenciaPlanGeneral)+'</b></div></div>'
+        + '<div><b style="color:var(--red);">El PPTO proyectado supera el presupuesto con ahorro</b>'
+        + '<div class="hint" style="margin-top:4px;">Proyectado: '+fmtUSD(planificadoTotalGeneral)+' · Presupuesto con ahorro ('+state.settings.ahorroPct+'%): '+fmtUSD(presupuestoAhorroAnual)+' · Diferencia: <b style="color:var(--red);">'+fmtUSD(diferenciaPlanGeneral)+'</b></div></div>'
         + '</div>'
       + '</div>'
     : '';
@@ -680,7 +694,10 @@ function renderActividades(el){
     '<div class="section-card">'
       + '<div class="section-head">'
         + '<div><h3>Gasto por actividad — año fiscal completo</h3></div>'
+        + '<div style="display:flex;gap:8px;">'
+        + '<button class="btn btn-ghost btn-sm" id="btnTogglePptoReal">'+(state.mostrarPptoReal?'🙈 Ocultar PPTO planificado (Finanzas)':'👁 Mostrar PPTO planificado (Finanzas)')+'</button>'
         + '<button class="btn btn-ghost btn-sm" id="btnToggleEdit">'+(editing?'Cancelar edición':'✏️ Editar')+'</button>'
+        + '</div>'
       + '</div>'
       + '<div class="toolbar">'
         + '<input type="text" id="filterActNombre" placeholder="Buscar actividad por nombre…" value="'+esc(state.actFilters.nombre)+'">'
@@ -694,6 +711,7 @@ function renderActividades(el){
   renderActTable();
 
   $('#btnToggleEdit').addEventListener('click', function(){ state.editActividades = !state.editActividades; renderContent(); });
+  $('#btnTogglePptoReal').addEventListener('click', function(){ state.mostrarPptoReal = !state.mostrarPptoReal; renderContent(); });
   $('#filterCategoria').addEventListener('change', function(){ state.actFilters.categoria = this.value; renderActTable(); });
   $('#filterActNombre').addEventListener('input', function(){ state.actFilters.nombre = this.value; renderActTable(); });
 }
@@ -715,20 +733,24 @@ function renderActTable(){
     .filter(function(r){ return !nombreFilter || r.actividad.nombre.toLowerCase().indexOf(nombreFilter)!==-1; })
     .sort(function(a,b){ return (a.actividad.categoria||'').localeCompare(b.actividad.categoria||'') || a.actividad.nombre.localeCompare(b.actividad.nombre); });
 
+  var mostrarReal = state.mostrarPptoReal;
   var body = rows.map(function(r){
     var a = r.actividad;
     var estado = r.disponible<0 ? '<span class="tag red">No cumple</span>' : '<span class="tag green">Cumple</span>';
     var nuevaTag = '';
     var rowClass = (r.disponible<0?'alert-row':'') + (a.esNueva?' new-activity-row':'');
+    var realCell = mostrarReal ? '<td class="num muted">'+(typeof a.pptoReal==='number'?fmtUSD(a.pptoReal):'—')+'</td>' : '';
     if(!editing){
       return '<tr class="'+rowClass+'">'
         + '<td>'+esc(a.nombre)+nuevaTag+'</td><td>'+esc(a.categoria||'—')+'</td>'
+        + realCell
         + '<td class="num">'+fmtUSD(r.pptoPlanificado)+'</td><td class="num">'+fmtUSD(r.gastado)+'</td>'
         + '<td class="num">'+fmtUSD(r.disponible)+'</td><td>'+estado+'</td></tr>';
     }
     return '<tr class="'+rowClass+'">'
       + '<td><input type="text" class="inline-input text" data-action="act-cat" data-id="'+a.id+'" value="'+esc(a.categoria||'')+'"></td>'
       + '<td><input type="text" class="inline-input text" style="width:160px;" data-action="act-nombre" data-id="'+a.id+'" value="'+esc(a.nombre)+'">'+nuevaTag+'</td>'
+      + realCell
       + '<td class="num"><input type="number" step="0.01" class="inline-input" data-action="act-planificado" data-id="'+a.id+'" value="'+(Number(a.pptoPlanificado)||0)+'"></td>'
       + '<td class="num">'+fmtUSD(r.gastado)+'</td><td class="num">'+fmtUSD(r.disponible)+'</td>'
       + '<td>'+(a.activo!==false?'<span class="tag green">Activo</span>':'<span class="tag amber">Inactivo</span>')+'</td>'
@@ -738,22 +760,27 @@ function renderActTable(){
   var totalPlanificadoFiltrado = rows.reduce(function(a,r){return a+r.pptoPlanificado;},0);
   var totalGastadoFiltrado = rows.reduce(function(a,r){return a+r.gastado;},0);
   var totalDisponibleFiltrado = rows.reduce(function(a,r){return a+r.disponible;},0);
+  var totalRealFiltrado = rows.reduce(function(a,r){return a+(typeof r.actividad.pptoReal==='number'?r.actividad.pptoReal:0);},0);
   var presupuestoAhorroAnual = FISCAL_MONTHS.reduce(function(s,m){ return s+computeGlobalMonth(m).presupuestoAhorro; },0);
   var diffVsAhorro = presupuestoAhorroAnual - totalPlanificadoFiltrado;
   var planificadoCell = '<td class="num">'+fmtUSD(totalPlanificadoFiltrado)+'</td>';
+  var realTotalCell = mostrarReal ? '<td class="num muted">'+fmtUSD(totalRealFiltrado)+'</td>' : '';
   var totalRow = editing
     ? ('<tr class="total-row"><td></td><td>Total ('+rows.length+' filtrada'+(rows.length===1?'':'s')+')</td>'
+        + realTotalCell
         + planificadoCell
         + '<td class="num">'+fmtUSD(totalGastadoFiltrado)+'</td>'
         + '<td class="num">'+fmtUSD(totalDisponibleFiltrado)+'</td><td></td><td></td></tr>')
     : ('<tr class="total-row"><td>Total ('+rows.length+' filtrada'+(rows.length===1?'':'s')+')</td><td></td>'
+        + realTotalCell
         + planificadoCell
         + '<td class="num">'+fmtUSD(totalGastadoFiltrado)+'</td>'
         + '<td class="num">'+fmtUSD(totalDisponibleFiltrado)+'</td><td></td></tr>');
 
+  var realHeaderCell = mostrarReal ? '<th class="num">PPTO planificado</th>' : '';
   var header = editing
-    ? '<tr><th>Categoría</th><th>Actividad</th><th class="num">PPTO planificado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th><th></th></tr>'
-    : '<tr><th>Actividad</th><th>Categoría</th><th class="num">PPTO planificado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th></tr>';
+    ? '<tr><th>Categoría</th><th>Actividad</th>'+realHeaderCell+'<th class="num">PPTO proyectado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th><th></th></tr>'
+    : '<tr><th>Actividad</th><th>Categoría</th>'+realHeaderCell+'<th class="num">PPTO proyectado</th><th class="num">Gastado</th><th class="num">Disponible</th><th>Estado</th></tr>';
 
   $('#actTableWrap').innerHTML = rows.length
     ? '<div class="table-scroll"><table>'+header+body+totalRow+'</table></div>'
@@ -764,7 +791,7 @@ function renderActTable(){
     ? '<div class="form-grid" style="grid-template-columns:1fr 1.4fr 1fr auto;">'
       + '<div class="field"><label>Categoría</label><input type="text" id="newActCat" placeholder="Ej. Plan de formación"></div>'
       + '<div class="field"><label>Nueva actividad</label><input type="text" id="newActName" placeholder="Nombre de la actividad"></div>'
-      + '<div class="field"><label>PPTO planificado (anual)</label><input type="number" id="newActPlanificado" step="0.01" placeholder="0.00"></div>'
+      + '<div class="field"><label>PPTO proyectado (anual)</label><input type="number" id="newActPlanificado" step="0.01" placeholder="0.00"></div>'
       + '<div class="field" style="display:flex;align-items:flex-end;"><button class="btn btn-primary" id="btnAddAct" style="width:100%;">Agregar</button></div></div>'
       + '<button class="btn btn-primary" id="btnSaveActs">✓ Guardar cambios y salir de edición</button> <span id="actMsg" class="hint" style="color:var(--green);font-weight:600;"></span>'
     : '';
@@ -1253,11 +1280,11 @@ function renderOficial(el){
   el.innerHTML =
     '<div class="section-card">'
       + '<div class="section-head"><div><h3>Cierre de mes con el panel de Finanzas — '+esc(monthLabel(state.currentMonth))+'</h3></div></div>'
-      + '<div class="form-grid" style="grid-template-columns:2fr auto;margin-bottom:0;">'
-        + '<div class="field"><label>Gasto real (panel de Finanzas) para '+esc(monthLabel(state.currentMonth))+'</label><input type="number" step="0.01" id="oficialMontoInput" value="'+(g.oficial===null?'':g.oficial)+'" placeholder="Monto según tu Excel"></div>'
-        + '<div class="field" style="display:flex;align-items:flex-end;"><button class="btn btn-primary" id="btnSaveOficialTotal" style="width:100%;">Guardar total</button></div>'
+      + '<div class="card accent" style="margin-bottom:4px;">'
+        + '<div class="clabel">Gasto real (panel de Finanzas) — '+esc(monthLabel(state.currentMonth))+'</div>'
+        + '<div class="cvalue">'+(g.oficial===null?'Aún no marcas nada':fmtUSD(g.oficial))+'</div>'
+        + '<div class="cfoot">Se calcula solo, sumando lo que marques como "en panel" en la lista de abajo</div>'
       + '</div>'
-      + '<span id="oficialMsg" class="hint" style="color:var(--green);font-weight:600;"></span>'
       + '<div id="oficialChecklistWrap" style="margin-top:20px;"></div>'
       + '<div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--border);">'
         + '<div style="font-size:12.5px;font-weight:700;color:var(--navy);margin-bottom:8px;">➕ Agregar monto que está en el panel pero no vino de Procura</div>'
@@ -1273,16 +1300,6 @@ function renderOficial(el){
 
   renderOficialChecklist();
   wireActivitySearchInput('newManualActividad');
-
-  $('#btnSaveOficialTotal').addEventListener('click', async function(){
-    var val = parseFloat($('#oficialMontoInput').value);
-    if(isNaN(val)){ alert('Ingresa un monto válido.'); return; }
-    var existing = state.official.find(function(o){return o.mes===state.currentMonth;});
-    if(existing) existing.monto = val; else state.official.push({mes:state.currentMonth, monto:val});
-    var ok = await storageSet(KEYS.official, state.official);
-    $('#oficialMsg').textContent = ok? '✓ Total oficial guardado.' : 'Error al guardar.';
-    renderContent();
-  });
 
   $('#btnAddManual').addEventListener('click', async function(){
     var desc = $('#newManualDesc').value.trim();
@@ -1322,18 +1339,11 @@ function renderOficialChecklist(){
   }).join('');
 
   var marcadoSum = list.filter(function(x){return x.enPanel;}).reduce(function(a,x){return a+Number(x.monto||0);},0);
-  var diferencia = g.oficial===null ? null : (g.oficial - marcadoSum);
-  var diffHtml = diferencia===null
-    ? '<span class="muted">Ingresa el total oficial arriba para comparar.</span>'
-    : (Math.abs(diferencia)<0.01
-        ? '<span style="color:var(--green);font-weight:700;">✓ Coincide con el total oficial.</span>'
-        : '<span style="color:var(--red);font-weight:700;">⚠ Diferencia de '+fmtUSD(diferencia)+' vs. el total oficial — revisa qué falta marcar o agregar.</span>');
 
   $('#oficialChecklistWrap').innerHTML = list.length
     ? '<div class="hint" style="margin-bottom:10px;">Gastos en '+esc(monthLabel(state.currentMonth))+' — marca los que ya viste en el Excel oficial (ordenados de mayor a menor monto)</div>'
       + '<div class="table-scroll"><table><tr><th>Solicitud</th><th>Orden de compra</th><th>Proveedor / Descripción</th><th>Actividad</th><th>Responsable</th><th class="num">Monto</th><th>¿En panel?</th><th></th></tr>'+body+'</table></div>'
-      + '<div class="hint" style="margin-top:10px;">Marcados: <strong class="mono">'+fmtUSD(marcadoSum)+'</strong> · Pendientes (Procura): <strong class="mono">'+fmtUSD(g.procura)+'</strong></div>'
-      + '<div style="margin-top:6px;font-size:12.5px;">'+diffHtml+'</div>'
+      + '<div class="hint" style="margin-top:10px;">Marcados (= gasto real oficial): <strong class="mono">'+fmtUSD(marcadoSum)+'</strong> · Pendientes (Procura, aún no en panel): <strong class="mono">'+fmtUSD(g.procura)+'</strong></div>'
     : '<div class="empty">No hay gastos cargados este mes todavía.</div>';
 
   $$('input[data-action="checklist-toggle"]').forEach(function(cb){
