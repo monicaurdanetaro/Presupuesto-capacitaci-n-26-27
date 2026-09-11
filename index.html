@@ -363,7 +363,7 @@ var state = {
   currentTab: 'dashboard', currentMonth: FISCAL_MONTHS[0],
   editActividades: false, editGastos: false,
   segFilters: { text:'', estado:'', resp:'', mes:'' },
-  actFilters: { nombre:'', categoria:'' },
+  actFilters: { nombre:'', categoria:'', estadoMensual:'' },
   mostrarPptoReal: false,
   actividadesVista: 'anual',
   expFilters: { text:'', act:'', mes:'', resp:'' }
@@ -872,6 +872,13 @@ function renderActividadesMensual(el){
       + '<div class="toolbar">'
         + '<input type="text" id="filterActNombreMensual" placeholder="Buscar actividad por nombre…" value="'+esc(state.actFilters.nombre)+'">'
         + '<select id="filterCategoriaMensual"><option value="">Todos los proyectos</option></select>'
+        + '<select id="filterEstadoMensual">'
+          + '<option value="">Todos los estados</option>'
+          + '<option value="sobre" '+(state.actFilters.estadoMensual==='sobre'?'selected':'')+'>🔴 Sobre-ejecución</option>'
+          + '<option value="sub" '+(state.actFilters.estadoMensual==='sub'?'selected':'')+'>🟡 Sub-ejecución</option>'
+          + '<option value="linea" '+(state.actFilters.estadoMensual==='linea'?'selected':'')+'>🟢 En línea</option>'
+          + '<option value="sin_plan" '+(state.actFilters.estadoMensual==='sin_plan'?'selected':'')+'>Sin plan mensual</option>'
+        + '</select>'
       + '</div>'
       + '<div id="actMensualTableWrap"></div>'
     + '</div>';
@@ -882,31 +889,35 @@ function renderActividadesMensual(el){
   renderActMensualTable();
   $('#filterActNombreMensual').addEventListener('input', function(){ state.actFilters.nombre = this.value; renderActMensualTable(); });
   $('#filterCategoriaMensual').addEventListener('change', function(){ state.actFilters.categoria = this.value; renderActMensualTable(); });
+  $('#filterEstadoMensual').addEventListener('change', function(){ state.actFilters.estadoMensual = this.value; renderActMensualTable(); });
 }
 function renderActMensualTable(){
   var mes = state.currentMonth;
   var catFilter = state.actFilters.categoria;
   var nombreFilter = (state.actFilters.nombre||'').toLowerCase().trim();
+  var estadoFilter = state.actFilters.estadoMensual || '';
 
   var rows = activeActivities()
     .filter(function(a){ return !catFilter || (a.categoria||'Sin categoría')===catFilter; })
     .filter(function(a){ return !nombreFilter || a.nombre.toLowerCase().indexOf(nombreFilter)!==-1; })
     .map(function(a){
       var planificado = (a.mesesPlanificado && typeof a.mesesPlanificado[mes]==='number') ? a.mesesPlanificado[mes] : null;
-      var gastado = expensesForMonth(mes).filter(function(x){return x.actividadId===a.id;}).reduce(function(s,x){return s+Number(x.monto||0);},0);
+      var gastado = expensesForMonth(mes).filter(function(x){return x.actividadId===a.id && x.enPanel;}).reduce(function(s,x){return s+Number(x.monto||0);},0);
       var diferencia = planificado===null ? null : (planificado - gastado);
-      return {actividad:a, planificado:planificado, gastado:gastado, diferencia:diferencia};
+      var estadoKey = planificado===null ? 'sin_plan' : (diferencia<-0.005 ? 'sobre' : (diferencia>0.005 && planificado>0 ? 'sub' : 'linea'));
+      return {actividad:a, planificado:planificado, gastado:gastado, diferencia:diferencia, estadoKey:estadoKey};
     })
+    .filter(function(r){ return !estadoFilter || r.estadoKey===estadoFilter; })
     .sort(function(x,y){ return (x.actividad.categoria||'').localeCompare(y.actividad.categoria||'') || x.actividad.nombre.localeCompare(y.actividad.nombre); });
 
   var body = rows.map(function(r){
     var a = r.actividad;
     var estado, rowClass = a.esNueva?'new-activity-row':'';
-    if(r.planificado===null){
-      estado = '<span class="tag gray">Sin plan mensual</span>';
-    } else if(r.diferencia<-0.005){
+    if(r.estadoKey==='sin_plan'){
+      estado = '<span class="tag gray">Sin plan mensual</span> <button class="btn btn-ghost btn-sm" data-action="reemparejar" data-id="'+a.id+'" title="Buscar el plan original de Finanzas por su nombre anterior">🔄 Reintentar</button>';
+    } else if(r.estadoKey==='sobre'){
       estado = '<span class="tag red">🔴 Sobre-ejecución</span>'; rowClass += ' alert-row';
-    } else if(r.diferencia>0.005 && r.planificado>0){
+    } else if(r.estadoKey==='sub'){
       estado = '<span class="tag amber">🟡 Sub-ejecución</span>';
     } else {
       estado = '<span class="tag green">🟢 En línea</span>';
@@ -929,6 +940,22 @@ function renderActMensualTable(){
   $('#actMensualTableWrap').innerHTML = rows.length
     ? '<div class="table-scroll"><table><tr><th>Actividad</th><th>Categoría</th><th class="num">Planificado (mes)</th><th class="num">Gastado (mes)</th><th class="num">Diferencia</th><th>Estado</th></tr>'+body+totalRow+'</table></div>'
     : '<div class="empty">No hay actividades que coincidan con el filtro.</div>';
+
+  $$('button[data-action="reemparejar"]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      var a = state.settings.activities.find(function(x){return x.id===btn.dataset.id;});
+      if(!a) return;
+      var nombreAnterior = prompt('¿Cómo se llamaba esta actividad originalmente en el plan de Finanzas? (antes de cualquier cambio de nombre)', a.nombre);
+      if(!nombreAnterior) return;
+      var match = SEED_ACTIVITIES.find(function(s2){ return nombreNormalizado(s2.nombre)===nombreNormalizado(nombreAnterior); });
+      if(!match){ alert('No encontré ninguna actividad original con ese nombre. Revisa que esté escrito igual que en el plan original.'); return; }
+      a.pptoReal = sumMeses(match.meses);
+      a.mesesPlanificado = Object.assign({}, match.meses);
+      var ok = await storageSet(KEYS.settings, state.settings);
+      alert(ok ? '✓ Encontrado y vinculado correctamente.' : 'No se pudo guardar, revisa tu conexión.');
+      renderContent();
+    });
+  });
 }
 function findActivityByDisplay(text){
   var t = (text||'').trim().toLowerCase();
