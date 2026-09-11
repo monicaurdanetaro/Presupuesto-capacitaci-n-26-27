@@ -365,6 +365,7 @@ var state = {
   segFilters: { text:'', estado:'', resp:'', mes:'' },
   actFilters: { nombre:'', categoria:'' },
   mostrarPptoReal: false,
+  actividadesVista: 'anual',
   expFilters: { text:'', act:'', mes:'', resp:'' }
 };
 
@@ -510,7 +511,7 @@ function nombreNormalizado(n){ return String(n||'').replace(/^CA\s+/i,'').trim()
 function seedDefaults(){
   var activities = SEED_ACTIVITIES.map(function(a){
     var real = sumMeses(a.meses);
-    return {id:uid(), nombre:a.nombre.replace(/^CA\s+/i,''), categoria:a.categoria, pptoPlanificado:real, pptoReal:real, activo:true};
+    return {id:uid(), nombre:a.nombre.replace(/^CA\s+/i,''), categoria:a.categoria, pptoPlanificado:real, pptoReal:real, mesesPlanificado:Object.assign({},a.meses), activo:true};
   });
   return { activities:activities, monthlyBudgets:Object.assign({}, SEED_MONTHLY_BUDGETS), ahorroPct:2 };
 }
@@ -522,9 +523,16 @@ function normalizeSettings(s){
   s.activities.forEach(function(a){
     if(typeof a.pptoPlanificado !== 'number') a.pptoPlanificado = 0;
     if(a.nombre) a.nombre = a.nombre.replace(/^CA\s+/i, '');
+    var match = null;
+    if(typeof a.pptoReal !== 'number' || !a.mesesPlanificado){
+      match = SEED_ACTIVITIES.find(function(s2){ return nombreNormalizado(s2.nombre)===nombreNormalizado(a.nombre); });
+    }
     if(typeof a.pptoReal !== 'number'){
-      var match = SEED_ACTIVITIES.find(function(s2){ return nombreNormalizado(s2.nombre)===nombreNormalizado(a.nombre); });
       a.pptoReal = match ? sumMeses(match.meses) : null;
+      seDetectoMigracion = true;
+    }
+    if(!a.mesesPlanificado){
+      a.mesesPlanificado = match ? Object.assign({}, match.meses) : null;
       seDetectoMigracion = true;
     }
   });
@@ -677,6 +685,19 @@ function renderDashboard(el){
 
 /* ================= RENDER: POR ACTIVIDAD ================= */
 function renderActividades(el){
+  var tabsHTML = '<div style="display:flex;gap:8px;margin-bottom:16px;">'
+    + '<button class="btn '+(state.actividadesVista==='anual'?'btn-primary':'btn-ghost')+' btn-sm" id="btnVistaAnual">Vista anual</button>'
+    + '<button class="btn '+(state.actividadesVista==='mensual'?'btn-primary':'btn-ghost')+' btn-sm" id="btnVistaMensual">Vista mensual</button>'
+    + '</div>';
+  el.innerHTML = tabsHTML + '<div id="actividadesSubcontent"></div>';
+  $('#btnVistaAnual').addEventListener('click', function(){ state.actividadesVista='anual'; renderContent(); });
+  $('#btnVistaMensual').addEventListener('click', function(){ state.actividadesVista='mensual'; renderContent(); });
+
+  var sub = $('#actividadesSubcontent');
+  if(state.actividadesVista==='mensual') renderActividadesMensual(sub);
+  else renderVistaAnual(sub);
+}
+function renderVistaAnual(el){
   var editing = state.editActividades;
 
   var presupuestoAhorroAnual = FISCAL_MONTHS.reduce(function(s,m){ return s+computeGlobalMonth(m).presupuestoAhorro; },0);
@@ -836,7 +857,79 @@ function wireActTableEvents(){
   });
 }
 
-/* ================= AUTOCOMPLETE DE ACTIVIDAD ================= */
+/* ================= RENDER: POR ACTIVIDAD — VISTA MENSUAL ================= */
+function renderActividadesMensual(el){
+  if(state.currentMonth==='ALL'){
+    el.innerHTML = '<div class="section-card"><div class="lock-panel">'
+      + '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#7c8aa0" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>'
+      + '<h3>Selecciona un mes específico</h3><div>Esta vista compara actividad por actividad, mes por mes. Elige un mes arriba (distinto de "Todos los meses") para continuar.</div>'
+      + '</div></div>';
+    return;
+  }
+  el.innerHTML =
+    '<div class="section-card">'
+      + '<div class="section-head"><div><h3>Por actividad y por mes — '+esc(monthLabel(state.currentMonth))+'</h3><div class="shint">Presupuesto planificado de cada actividad para este mes (según el plan original de Finanzas) vs. lo gastado ese mismo mes.</div></div></div>'
+      + '<div class="toolbar">'
+        + '<input type="text" id="filterActNombreMensual" placeholder="Buscar actividad por nombre…" value="'+esc(state.actFilters.nombre)+'">'
+        + '<select id="filterCategoriaMensual"><option value="">Todos los proyectos</option></select>'
+      + '</div>'
+      + '<div id="actMensualTableWrap"></div>'
+    + '</div>';
+
+  var cats = Array.from(new Set(activeActivities().map(function(a){return a.categoria||'Sin categoría';}))).sort();
+  $('#filterCategoriaMensual').innerHTML = '<option value="">Todos los proyectos</option>'+cats.map(function(c){return '<option value="'+esc(c)+'" '+(state.actFilters.categoria===c?'selected':'')+'>'+esc(c)+'</option>';}).join('');
+
+  renderActMensualTable();
+  $('#filterActNombreMensual').addEventListener('input', function(){ state.actFilters.nombre = this.value; renderActMensualTable(); });
+  $('#filterCategoriaMensual').addEventListener('change', function(){ state.actFilters.categoria = this.value; renderActMensualTable(); });
+}
+function renderActMensualTable(){
+  var mes = state.currentMonth;
+  var catFilter = state.actFilters.categoria;
+  var nombreFilter = (state.actFilters.nombre||'').toLowerCase().trim();
+
+  var rows = activeActivities()
+    .filter(function(a){ return !catFilter || (a.categoria||'Sin categoría')===catFilter; })
+    .filter(function(a){ return !nombreFilter || a.nombre.toLowerCase().indexOf(nombreFilter)!==-1; })
+    .map(function(a){
+      var planificado = (a.mesesPlanificado && typeof a.mesesPlanificado[mes]==='number') ? a.mesesPlanificado[mes] : null;
+      var gastado = expensesForMonth(mes).filter(function(x){return x.actividadId===a.id;}).reduce(function(s,x){return s+Number(x.monto||0);},0);
+      var diferencia = planificado===null ? null : (planificado - gastado);
+      return {actividad:a, planificado:planificado, gastado:gastado, diferencia:diferencia};
+    })
+    .sort(function(x,y){ return (x.actividad.categoria||'').localeCompare(y.actividad.categoria||'') || x.actividad.nombre.localeCompare(y.actividad.nombre); });
+
+  var body = rows.map(function(r){
+    var a = r.actividad;
+    var estado, rowClass = a.esNueva?'new-activity-row':'';
+    if(r.planificado===null){
+      estado = '<span class="tag gray">Sin plan mensual</span>';
+    } else if(r.diferencia<-0.005){
+      estado = '<span class="tag red">🔴 Sobre-ejecución</span>'; rowClass += ' alert-row';
+    } else if(r.diferencia>0.005 && r.planificado>0){
+      estado = '<span class="tag amber">🟡 Sub-ejecución</span>';
+    } else {
+      estado = '<span class="tag green">🟢 En línea</span>';
+    }
+    return '<tr class="'+rowClass.trim()+'">'
+      + '<td>'+esc(a.nombre)+'</td><td>'+esc(a.categoria||'—')+'</td>'
+      + '<td class="num">'+(r.planificado===null?'<span class="muted">—</span>':fmtUSD(r.planificado))+'</td>'
+      + '<td class="num">'+fmtUSD(r.gastado)+'</td>'
+      + '<td class="num">'+(r.diferencia===null?'<span class="muted">—</span>':fmtUSD(r.diferencia))+'</td>'
+      + '<td>'+estado+'</td></tr>';
+  }).join('');
+
+  var totalPlanificado = rows.reduce(function(s,r){return s+(r.planificado||0);},0);
+  var totalGastado = rows.reduce(function(s,r){return s+r.gastado;},0);
+  var totalDiferencia = totalPlanificado - totalGastado;
+  var totalRow = '<tr class="total-row"><td>Total ('+rows.length+' filtrada'+(rows.length===1?'':'s')+')</td><td></td>'
+    + '<td class="num">'+fmtUSD(totalPlanificado)+'</td><td class="num">'+fmtUSD(totalGastado)+'</td>'
+    + '<td class="num">'+fmtUSD(totalDiferencia)+'</td><td></td></tr>';
+
+  $('#actMensualTableWrap').innerHTML = rows.length
+    ? '<div class="table-scroll"><table><tr><th>Actividad</th><th>Categoría</th><th class="num">Planificado (mes)</th><th class="num">Gastado (mes)</th><th class="num">Diferencia</th><th>Estado</th></tr>'+body+totalRow+'</table></div>'
+    : '<div class="empty">No hay actividades que coincidan con el filtro.</div>';
+}
 function findActivityByDisplay(text){
   var t = (text||'').trim().toLowerCase();
   if(!t) return null;
