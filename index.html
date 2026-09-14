@@ -1731,8 +1731,7 @@ function renderOverviewTable(datos){
     }).join('');
     var totalMesPpto = f.celdas.reduce(function(s,c){return s+c.presupuesto;},0);
     var totalMesGastado = f.celdas.reduce(function(s,c){return s+c.gastado;},0);
-    var filaAlerta = f.celdas.some(function(c){return c.gastado>c.presupuesto+0.005;});
-    return '<tr'+(filaAlerta?' class="alert-row"':'')+'><td>'+esc(soloNombreMes(f.mes))+'</td>'+cells
+    return '<tr><td>'+esc(soloNombreMes(f.mes))+'</td>'+cells
       + '<td class="num" style="font-weight:700;">'+fmtUSD(totalMesPpto)+'</td>'
       + '<td class="num" style="font-weight:700;">'+fmtUSD(totalMesGastado)+'</td></tr>';
   }).join('');
