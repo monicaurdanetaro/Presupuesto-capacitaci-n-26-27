@@ -407,19 +407,19 @@ var ICONO_DESARROLLO_ORG = '<svg width="32" height="32" viewBox="0 0 24 24" fill
 var ICONO_DIRECCION_DESARROLLO = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>';
 var AREAS = [
   {
-    id:'capacitacion', nombre:'Capacitación', icono:ICONO_CAPACITACION,
+    id:'capacitacion', nombre:'Capacitación', abrev:'CAP', colorBg:'#eaf1ff', colorTxt:'#2f6bf0', icono:ICONO_CAPACITACION,
     descripcion:'Presupuesto del equipo de Capacitación',
     dbPrefix:'ftdcap',
     seedActivities:SEED_ACTIVITIES, seedMonthlyBudgets:SEED_MONTHLY_BUDGETS
   },
   {
-    id:'desarrollo_organizacional', nombre:'Desarrollo Organizacional', icono:ICONO_DESARROLLO_ORG,
+    id:'desarrollo_organizacional', nombre:'Desarrollo Organizacional', abrev:'DO', colorBg:'#e7f7ee', colorTxt:'#1a9d63', icono:ICONO_DESARROLLO_ORG,
     descripcion:'Presupuesto de Desarrollo Organizacional',
     dbPrefix:'ftddo',
     seedActivities:SEED_ACTIVITIES_DO, seedMonthlyBudgets:sumarMesesDeActividades(SEED_ACTIVITIES_DO)
   },
   {
-    id:'direccion_desarrollo', nombre:'Dirección de Desarrollo', icono:ICONO_DIRECCION_DESARROLLO,
+    id:'direccion_desarrollo', nombre:'Dirección de Desarrollo', abrev:'DDO', colorBg:'#fdf3e3', colorTxt:'#b9791a', icono:ICONO_DIRECCION_DESARROLLO,
     descripcion:'Presupuesto de la Dirección de Desarrollo',
     dbPrefix:'ftddd',
     seedActivities:SEED_ACTIVITIES_DD, seedMonthlyBudgets:sumarMesesDeActividades(SEED_ACTIVITIES_DD)
@@ -1689,6 +1689,7 @@ async function mostrarResumenGeneral(){
     $('#overviewContent').innerHTML = '<div class="section-card"><div class="empty">No se pudo cargar el resumen general.<br><span style="color:var(--red);font-size:12px;">'+esc(e.message||String(e))+'</span></div></div>';
   }
 }
+function soloNombreMes(ym){ var p=ym.split('-'); return MONTH_NAMES[parseInt(p[1],10)-1]; }
 function renderOverviewTable(datos){
   var filas = FISCAL_MONTHS.map(function(m){
     return { mes:m, celdas: AREAS.map(function(a){ var d=datos[a.id]; return computeMonthlyForArea(d.settingsObj, d.expensesArr, m); }) };
@@ -1696,31 +1697,53 @@ function renderOverviewTable(datos){
   var totalesPorArea = AREAS.map(function(a,i){
     return filas.reduce(function(acc,f){ acc.presupuesto+=f.celdas[i].presupuesto; acc.gastado+=f.celdas[i].gastado; return acc; }, {presupuesto:0,gastado:0});
   });
+  var granTotalPpto = totalesPorArea.reduce(function(s,t){return s+t.presupuesto;},0);
+  var granTotalGastado = totalesPorArea.reduce(function(s,t){return s+t.gastado;},0);
 
-  var cardsHTML = '<div class="cards-row">' + AREAS.map(function(a,i){
+  /* ---- Tabla resumen: totalizador anual por gerencia/dirección ---- */
+  var filasResumen = AREAS.map(function(a,i){
     var t = totalesPorArea[i];
     var disp = t.presupuesto - t.gastado;
-    return '<div class="card"><div class="clabel">'+esc(a.nombre)+'</div><div class="cvalue">'+fmtUSD(t.presupuesto)+'</div>'
-      + '<div class="cfoot">Gastado: '+fmtUSD(t.gastado)+' · Disponible: <b style="color:'+(disp<0?'var(--red)':'var(--green)')+'">'+fmtUSD(disp)+'</b></div></div>';
-  }).join('') + '</div>';
+    return '<tr>'
+      + '<td><span style="display:inline-block;padding:3px 9px;border-radius:999px;background:'+a.colorBg+';color:'+a.colorTxt+';font-weight:700;font-size:12px;">'+a.abrev+'</span> '+esc(a.nombre)+'</td>'
+      + '<td class="num">'+fmtUSD(t.presupuesto)+'</td>'
+      + '<td class="num">'+fmtUSD(t.gastado)+'</td>'
+      + '<td class="num" style="color:'+(disp<0?'var(--red)':'var(--green)')+';font-weight:700;">'+fmtUSD(disp)+'</td></tr>';
+  }).join('');
+  var resumenTablaHTML = '<div class="section-card">'
+    + '<div class="section-head"><div><h3>Totalizador anual por gerencia/dirección</h3></div></div>'
+    + '<table><tr><th>Gerencia / Dirección</th><th class="num">Presupuestado</th><th class="num">Gastado</th><th class="num">Disponible</th></tr>'
+    + filasResumen
+    + '<tr class="total-row"><td>Total combinado</td><td class="num">'+fmtUSD(granTotalPpto)+'</td><td class="num">'+fmtUSD(granTotalGastado)+'</td><td class="num">'+fmtUSD(granTotalPpto-granTotalGastado)+'</td></tr>'
+    + '</table></div>';
 
-  var headerCells = AREAS.map(function(a){ return '<th class="num">'+esc(a.nombre)+' — Ppto</th><th class="num">'+esc(a.nombre)+' — Gastado</th>'; }).join('');
+  /* ---- Tabla detalle mensual ---- */
+  var headerCells = AREAS.map(function(a){
+    return '<th class="num" style="background:'+a.colorBg+';color:'+a.colorTxt+';">'+a.abrev+' — Ppto</th>'
+      + '<th class="num" style="background:'+a.colorBg+';color:'+a.colorTxt+';">'+a.abrev+' — Gastado</th>';
+  }).join('');
   var bodyRows = filas.map(function(f){
-    var cells = f.celdas.map(function(c){
+    var cells = AREAS.map(function(a,i){
+      var c = f.celdas[i];
       var over = c.gastado>c.presupuesto+0.005;
-      return '<td class="num">'+fmtUSD(c.presupuesto)+'</td><td class="num" style="'+(over?'color:var(--red);font-weight:700;':'')+'">'+fmtUSD(c.gastado)+'</td>';
+      return '<td class="num" style="background:'+a.colorBg+';">'+fmtUSD(c.presupuesto)+'</td>'
+        + '<td class="num" style="background:'+a.colorBg+';'+(over?'color:var(--red);font-weight:700;':'')+'">'+fmtUSD(c.gastado)+'</td>';
     }).join('');
+    var totalMesPpto = f.celdas.reduce(function(s,c){return s+c.presupuesto;},0);
+    var totalMesGastado = f.celdas.reduce(function(s,c){return s+c.gastado;},0);
     var filaAlerta = f.celdas.some(function(c){return c.gastado>c.presupuesto+0.005;});
-    return '<tr'+(filaAlerta?' class="alert-row"':'')+'><td>'+esc(monthLabel(f.mes))+'</td>'+cells+'</tr>';
+    return '<tr'+(filaAlerta?' class="alert-row"':'')+'><td>'+esc(soloNombreMes(f.mes))+'</td>'+cells
+      + '<td class="num" style="font-weight:700;">'+fmtUSD(totalMesPpto)+'</td>'
+      + '<td class="num" style="font-weight:700;">'+fmtUSD(totalMesGastado)+'</td></tr>';
   }).join('');
   var totalRow = '<tr class="total-row"><td>Total año</td>' + AREAS.map(function(a,i){
     var t=totalesPorArea[i];
     return '<td class="num">'+fmtUSD(t.presupuesto)+'</td><td class="num">'+fmtUSD(t.gastado)+'</td>';
-  }).join('') + '</tr>';
+  }).join('') + '<td class="num">'+fmtUSD(granTotalPpto)+'</td><td class="num">'+fmtUSD(granTotalGastado)+'</td></tr>';
 
-  $('#overviewContent').innerHTML = cardsHTML
-    + '<div class="section-card"><div class="section-head"><div><h3>Totalizador mensual por área</h3><div class="shint">Gastado en rojo cuando supera el presupuesto de ese mes en esa área.</div></div></div>'
-    + '<div class="table-scroll"><table><tr><th>Mes</th>'+headerCells+'</tr>'+bodyRows+totalRow+'</table></div></div>';
+  $('#overviewContent').innerHTML = resumenTablaHTML
+    + '<div class="section-card"><div class="section-head"><div><h3>Detalle mensual por área</h3><div class="shint">Gastado en rojo cuando supera el presupuesto de ese mes en esa área. Últimas dos columnas: total combinado de las 3 áreas ese mes.</div></div></div>'
+    + '<div class="table-scroll"><table><tr><th>Mes</th>'+headerCells+'<th class="num">Total Ppto</th><th class="num">Total Gastado</th></tr>'+bodyRows+totalRow+'</table></div></div>';
 }
 
 /* ================= INIT ================= */
