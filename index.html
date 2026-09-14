@@ -1675,11 +1675,18 @@ async function mostrarResumenGeneral(){
   if(!db){ $('#overviewContent').innerHTML = '<div class="section-card"><div class="empty">No hay conexión a Firebase en este momento.</div></div>'; return; }
   try{
     var datos = {};
-    for(var i=0;i<AREAS.length;i++){ datos[AREAS[i].id] = await fetchAreaData(AREAS[i]); }
+    for(var i=0;i<AREAS.length;i++){
+      try{
+        datos[AREAS[i].id] = await fetchAreaData(AREAS[i]);
+      }catch(errArea){
+        console.error('Error cargando '+AREAS[i].id, errArea);
+        throw new Error('Al cargar "'+AREAS[i].nombre+'": '+(errArea && errArea.message ? errArea.message : errArea));
+      }
+    }
     renderOverviewTable(datos);
   }catch(e){
     console.error(e);
-    $('#overviewContent').innerHTML = '<div class="section-card"><div class="empty">No se pudo cargar el resumen general. Intenta de nuevo.</div></div>';
+    $('#overviewContent').innerHTML = '<div class="section-card"><div class="empty">No se pudo cargar el resumen general.<br><span style="color:var(--red);font-size:12px;">'+esc(e.message||String(e))+'</span></div></div>';
   }
 }
 function renderOverviewTable(datos){
