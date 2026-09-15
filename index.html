@@ -240,7 +240,7 @@
 var $ = function(s,el){return (el||document).querySelector(s);};
 var $$ = function(s,el){return Array.from((el||document).querySelectorAll(s));};
 var MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-var RESPONSABLES = ['YP','ADA','MU','CG','VP','OO','OG','AH'];
+function RESPONSABLES(){ return (state.area && state.area.responsables) || []; }
 
 function genMonthRange(startYM, endYM){
   var out = []; var y=parseInt(startYM.split('-')[0],10), m=parseInt(startYM.split('-')[1],10);
@@ -409,19 +409,19 @@ var AREAS = [
   {
     id:'capacitacion', nombre:'Capacitación', abrev:'CAP', colorBg:'#eaf1ff', colorTxt:'#2f6bf0', icono:ICONO_CAPACITACION,
     descripcion:'Presupuesto del equipo de Capacitación',
-    dbPrefix:'ftdcap',
+    dbPrefix:'ftdcap', responsables:['YP','ADA','MU','CG','VP','OO','OG','AH'],
     seedActivities:SEED_ACTIVITIES, seedMonthlyBudgets:SEED_MONTHLY_BUDGETS
   },
   {
     id:'desarrollo_organizacional', nombre:'Desarrollo Organizacional', abrev:'DO', colorBg:'#e7f7ee', colorTxt:'#1a9d63', icono:ICONO_DESARROLLO_ORG,
     descripcion:'Presupuesto de Desarrollo Organizacional',
-    dbPrefix:'ftddo',
+    dbPrefix:'ftddo', responsables:['MM','VC','MU'],
     seedActivities:SEED_ACTIVITIES_DO, seedMonthlyBudgets:sumarMesesDeActividades(SEED_ACTIVITIES_DO)
   },
   {
     id:'direccion_desarrollo', nombre:'Dirección de Desarrollo', abrev:'DDO', colorBg:'#fdf3e3', colorTxt:'#b9791a', icono:ICONO_DIRECCION_DESARROLLO,
     descripcion:'Presupuesto de la Dirección de Desarrollo',
-    dbPrefix:'ftddd',
+    dbPrefix:'ftddd', responsables:['VP','MU'],
     seedActivities:SEED_ACTIVITIES_DD, seedMonthlyBudgets:sumarMesesDeActividades(SEED_ACTIVITIES_DD)
   }
 ];
@@ -1092,7 +1092,7 @@ function renderCargar(el){
           + '<div class="field"><label>Actividad <span class="req">*</span></label><input type="text" id="f_actividad_search" required placeholder="Buscar actividad por nombre…" autocomplete="off"></div>'
           + '<div class="field"><label>Concepto <span class="req">*</span></label><input type="text" id="f_concepto" required placeholder="Ej. Certificación equipo ventas"></div>'
           + '<div class="field"><label>Monto (USD) <span class="req">*</span></label><input type="number" id="f_monto" required step="0.01" min="0" placeholder="0.00"></div>'
-          + '<div class="field"><label>Responsable <span class="req">*</span></label><select id="f_cargadopor" required><option value="" disabled selected>Selecciona…</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'">'+r+'</option>';}).join('')+'</select></div>'
+          + '<div class="field"><label>Responsable <span class="req">*</span></label><select id="f_cargadopor" required><option value="" disabled selected>Selecciona…</option>'+RESPONSABLES().map(function(r){return '<option value="'+r+'">'+r+'</option>';}).join('')+'</select></div>'
           + '<div class="field"><label>Fecha de carga</label><div class="static" id="f_fecha_display"></div></div>'
         + '</div>'
         + '<button type="submit" class="btn btn-primary">Registrar gasto</button> <span id="formMsg" class="hint" style="color:var(--green);font-weight:600;"></span>'
@@ -1106,7 +1106,7 @@ function renderCargar(el){
       + '<div class="toolbar">'
         + '<input type="text" id="filterText" placeholder="Buscar proveedor, concepto o solicitud…" value="'+esc(state.expFilters.text)+'">'
         + '<input type="text" id="filterActSearch" placeholder="Filtrar por actividad…" autocomplete="off" value="'+esc(state.expFilters.act)+'">'
-        + '<select id="filterResp"><option value="">Todos los responsables</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'" '+(state.expFilters.resp===r?'selected':'')+'>'+r+'</option>';}).join('')+'</select>'
+        + '<select id="filterResp"><option value="">Todos los responsables</option>'+RESPONSABLES().map(function(r){return '<option value="'+r+'" '+(state.expFilters.resp===r?'selected':'')+'>'+r+'</option>';}).join('')+'</select>'
       + '</div>'
       + '<div id="expensesTableWrap"></div>'
     + '</div>';
@@ -1389,7 +1389,7 @@ function renderSeguimiento(el){
       + '<div class="toolbar">'
         + '<input type="text" id="segFilterText" placeholder="Buscar proveedor, factura o solicitud…" value="'+esc(f.text)+'">'
         + '<select id="segFilterEstado"><option value="">Todos los estados</option>'+['Esperando aprobación','Esperando OC','Por cargar en CxP','Completado'].map(function(l){return '<option value="'+esc(l)+'" '+(f.estado===l?'selected':'')+'>'+esc(l)+'</option>';}).join('')+'</select>'
-        + '<select id="segFilterResp"><option value="">Todos los responsables</option>'+RESPONSABLES.map(function(r){return '<option value="'+r+'" '+(f.resp===r?'selected':'')+'>'+r+'</option>';}).join('')+'</select>'
+        + '<select id="segFilterResp"><option value="">Todos los responsables</option>'+RESPONSABLES().map(function(r){return '<option value="'+r+'" '+(f.resp===r?'selected':'')+'>'+r+'</option>';}).join('')+'</select>'
       + '</div>'
       + '<div id="segTableWrap"></div>'
     + '</div>';
