@@ -567,6 +567,12 @@ async function descargarFactura(expenseId, btn){
     if(btn){ btn.disabled = false; btn.textContent = original; }
   }
 }
+async function quitarFacturaFlow(expenseId){
+  var x = state.expenses.find(function(e2){return e2.id===expenseId;});
+  await deleteFacturaAdjunta(expenseId);
+  if(x){ x.tieneFactura = false; await storageSet(KEYS.expenses, state.expenses); }
+  renderContent();
+}
 function attachFacturaFlow(expenseId, btn){
   var input = document.createElement('input');
   input.type = 'file';
@@ -1091,7 +1097,7 @@ function renderCargar(el){
           + '<div class="field"><label>Nº de factura</label><input type="text" id="f_factura" placeholder="Ej. FAC-00981 (si aún no la tienes, déjalo vacío)"></div>'
           + '<div class="field"><label>Actividad <span class="req">*</span></label><input type="text" id="f_actividad_search" required placeholder="Buscar actividad por nombre…" autocomplete="off"></div>'
           + '<div class="field"><label>Concepto <span class="req">*</span></label><input type="text" id="f_concepto" required placeholder="Ej. Certificación equipo ventas"></div>'
-          + '<div class="field"><label>Monto (USD) <span class="req">*</span></label><input type="number" id="f_monto" required step="0.01" min="0" placeholder="0.00"></div>'
+          + '<div class="field"><label>Monto (USD) <span class="req">*</span></label><input type="number" id="f_monto" required step="0.01" placeholder="0.00 (negativo = nota de crédito / ajuste)"></div>'
           + '<div class="field"><label>Responsable <span class="req">*</span></label><select id="f_cargadopor" required><option value="" disabled selected>Selecciona…</option>'+RESPONSABLES().map(function(r){return '<option value="'+r+'">'+r+'</option>';}).join('')+'</select></div>'
           + '<div class="field"><label>Fecha de carga</label><div class="static" id="f_fecha_display"></div></div>'
         + '</div>'
@@ -1285,7 +1291,7 @@ function renderExpensesTable(){
     var mesCell = '<select class="inline-select'+(fueraDeAnio?' alert':'')+'" data-action="expense-mes" data-id="'+x.id+'" '+(locked?'disabled':'')+'>'
       + mesOptions.map(function(m){ var lbl = FISCAL_MONTHS.indexOf(m)===-1 ? monthLabel(m)+' (fuera de año fiscal)' : monthLabel(m); return '<option value="'+m+'" '+(m===x.mes?'selected':'')+'>'+esc(lbl)+'</option>'; }).join('')
       + '</select>';
-    var montoCell = '<input type="number" step="0.01" class="inline-input" data-action="expense-monto" data-id="'+x.id+'" value="'+x.monto+'" '+(locked?'disabled':'')+'>';
+    var montoCell = '<input type="number" step="0.01" class="inline-input" data-action="expense-monto" data-id="'+x.id+'" value="'+x.monto+'" '+(Number(x.monto)<0?'style="color:var(--red);font-weight:600;" ':'')+(locked?'disabled':'')+'>';
     var editing = state.editGastos;
     var solicitudCell = editing
       ? '<input type="text" class="inline-input text" style="width:90px;" data-action="expense-solicitud" data-id="'+x.id+'" value="'+esc(x.solicitud)+'" '+(locked?'disabled':'')+'>'
@@ -1307,7 +1313,7 @@ function renderExpensesTable(){
       ? (editing ? '<span class="tag green" title="Ya está reflejado en el panel oficial, no se puede editar ni eliminar.">🔒 En panel</span>' : '')
       : (editing ? '<button class="btn btn-danger btn-sm" data-action="del-expense" data-id="'+x.id+'">Eliminar</button>' : '');
     var facturaCell = x.tieneFactura
-      ? '<button class="btn btn-ghost btn-sm" data-action="descargar-factura" data-id="'+x.id+'">📎 Descargar</button>'
+      ? '<button class="btn btn-ghost btn-sm" data-action="descargar-factura" data-id="'+x.id+'">📎 Descargar</button> <button class="btn btn-ghost btn-sm" data-action="adjuntar-factura" data-id="'+x.id+'" title="Reemplazar el archivo adjunto">Cambiar</button> <button class="btn btn-ghost btn-sm" data-action="quitar-factura" data-id="'+x.id+'" title="Quitar el archivo adjunto">Quitar</button>'
       : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm" data-action="adjuntar-factura" data-id="'+x.id+'">📎 Adjuntar</button>');
     return '<tr>'
       + '<td class="mono">'+solicitudCell+'</td><td>'+proveedorCell+'</td><td class="mono">'+numFacturaCell+'</td>'
@@ -1325,6 +1331,12 @@ function renderExpensesTable(){
   });
   $$('button[data-action="adjuntar-factura"]').forEach(function(btn){
     btn.addEventListener('click', function(){ attachFacturaFlow(btn.dataset.id, btn); });
+  });
+  $$('button[data-action="quitar-factura"]').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('¿Quitar la factura adjunta de este gasto?')) return;
+      await quitarFacturaFlow(btn.dataset.id);
+    });
   });
   $$('button[data-action="del-expense"]').forEach(function(btn){
     btn.addEventListener('click', async function(){
@@ -1348,7 +1360,7 @@ function renderExpensesTable(){
       var y = state.expenses.find(function(e2){return e2.id===inp.dataset.id;});
       if(!y || y.enPanel) return;
       var val = parseFloat(inp.value);
-      if(isNaN(val) || val<0){ alert('Monto inválido.'); renderContent(); return; }
+      if(isNaN(val)){ alert('Monto inválido.'); renderContent(); return; }
       y.monto = val; await storageSet(KEYS.expenses, state.expenses); renderContent();
     });
   });
@@ -1418,7 +1430,7 @@ function renderSegTable(){
     var locked = !!x.enPanel;
     var dis = locked ? 'disabled' : '';
     var facturaCell = x.tieneFactura
-      ? '<button class="btn btn-ghost btn-sm icon-only" data-dl-id="'+x.id+'" title="Descargar factura">📎</button>'
+      ? '<button class="btn btn-ghost btn-sm icon-only" data-dl-id="'+x.id+'" title="Descargar factura">📎</button> <button class="btn btn-ghost btn-sm" data-attach-id="'+x.id+'" title="Reemplazar el archivo adjunto">Cambiar</button>'
       : (locked ? '<span class="muted">—</span>' : '<button class="btn btn-ghost btn-sm icon-only" data-attach-id="'+x.id+'" title="Adjuntar factura">📎</button>');
     return '<tr>'
       + '<td class="mono">'+esc(x.solicitud)+'</td><td>'+esc(x.proveedor)+'</td>'
@@ -1489,7 +1501,7 @@ function renderOficial(el){
         + '<div class="form-grid" style="grid-template-columns:1.4fr 1fr 1fr auto;">'
           + '<div class="field"><label>Descripción</label><input type="text" id="newManualDesc" placeholder="Ej. Ajuste de Finanzas"></div>'
           + '<div class="field"><label>Actividad</label><input type="text" id="newManualActividad" placeholder="Buscar actividad…" autocomplete="off"></div>'
-          + '<div class="field"><label>Monto (USD)</label><input type="number" id="newManualMonto" step="0.01" min="0" placeholder="0.00"></div>'
+          + '<div class="field"><label>Monto (USD)</label><input type="number" id="newManualMonto" step="0.01" placeholder="0.00 (negativo resta)"></div>'
           + '<div class="field" style="display:flex;align-items:flex-end;"><button class="btn btn-primary" id="btnAddManual" style="width:100%;">Agregar</button></div>'
         + '</div>'
         + '<span id="manualMsg" class="hint" style="color:var(--green);font-weight:600;"></span>'
@@ -1506,7 +1518,7 @@ function renderOficial(el){
     var msg = $('#manualMsg');
     if(!desc){ msg.style.color='var(--red)'; msg.textContent='Escribe una descripción.'; return; }
     if(!act){ msg.style.color='var(--red)'; msg.textContent='Selecciona una actividad válida de la lista.'; return; }
-    if(isNaN(monto) || monto<=0){ msg.style.color='var(--red)'; msg.textContent='Ingresa un monto válido.'; return; }
+    if(isNaN(monto) || monto===0){ msg.style.color='var(--red)'; msg.textContent='Ingresa un monto válido.'; return; }
     var entry = { id:uid(), manual:true, solicitud:'', proveedor:'', numeroFactura:'', actividadId:act.id, concepto:desc, monto:monto,
       mes:state.currentMonth, cargadoPor:'', fechaCarga:todayISO(), enPanel:true, aprobado:false, ordenCompra:'', numeroRecepcion:'', cargadoCxP:false };
     var newList = state.expenses.concat([entry]);
@@ -1527,7 +1539,7 @@ function renderOficialChecklist(){
     var checkCell = '<div class="checkbox-cell"><input type="checkbox" data-action="checklist-toggle" data-id="'+x.id+'" '+(locked?'checked':'')+'></div>';
     var solicitudCell = x.manual? '<span class="tag blue">Manual</span>' : esc(x.solicitud);
     var proveedorCell = x.manual? esc(x.concepto) : esc(x.proveedor);
-    var montoCell = '<input type="number" step="0.01" class="inline-input" data-action="oficial-monto" data-id="'+x.id+'" value="'+x.monto+'" '+(locked?'disabled':'')+'>';
+    var montoCell = '<input type="number" step="0.01" class="inline-input" data-action="oficial-monto" data-id="'+x.id+'" value="'+x.monto+'" '+(Number(x.monto)<0?'style="color:var(--red);font-weight:600;" ':'')+(locked?'disabled':'')+'>';
     var borrar = x.manual ? '<button class="btn btn-danger btn-sm" data-action="del-manual" data-id="'+x.id+'">Eliminar</button>' : '';
     return '<tr>'
       + '<td class="mono">'+solicitudCell+'</td><td class="mono">'+esc(x.ordenCompra||'—')+'</td>'
@@ -1556,7 +1568,7 @@ function renderOficialChecklist(){
       var y = state.expenses.find(function(e2){return e2.id===inp.dataset.id;});
       if(!y || y.enPanel) return;
       var val = parseFloat(inp.value);
-      if(isNaN(val) || val<0){ alert('Monto inválido.'); renderContent(); return; }
+      if(isNaN(val)){ alert('Monto inválido.'); renderContent(); return; }
       y.monto = val; await storageSet(KEYS.expenses, state.expenses); renderContent();
     });
   });
